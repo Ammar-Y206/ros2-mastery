@@ -1,0 +1,24 @@
+"use client";
+
+import { useRouter } from "next/navigation";
+import { CourseOverview } from "@/components/layout/CourseOverview";
+
+/**
+ * OverviewWrapper — client component that wires the CourseOverview dashboard
+ * to Next.js router navigation.
+ */
+export function OverviewWrapper() {
+  const router = useRouter();
+
+  const handleNavigate = (moduleId: string) => {
+    router.push(`/?m=${moduleId}`);
+  };
+
+  const handleDismiss = () => {
+    router.push("/?m=phase-1/middleware");
+  };
+
+  return (
+    <CourseOverview onNavigate={handleNavigate} onDismiss={handleDismiss} />
+  );
+}

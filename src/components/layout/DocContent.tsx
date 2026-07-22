@@ -12,6 +12,7 @@ import {
 } from "@/lib/course-data";
 import { useModuleProgress, useProgressStore } from "@/hooks/use-progress";
 import { ContinueBanner } from "@/components/layout/ContinueBanner";
+import { ShareButton } from "@/components/layout/ShareButton";
 
 interface DocContentProps {
   moduleId: string;
@@ -107,6 +108,10 @@ export function DocContent({ moduleId, onNavigate, children }: DocContentProps) 
               Completed
             </span>
           )}
+          {/* Share button — pushed to the right */}
+          <div className="ml-auto">
+            <ShareButton moduleId={moduleId} variant="icon" />
+          </div>
         </div>
 
         {/* Phase mission banner (only on first module of each phase) */}

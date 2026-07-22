@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useState, useEffect } from "react";
 import { Search, Command, Github, BookOpen, Menu, X } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -23,6 +24,7 @@ interface NavbarProps {
 }
 
 export function Navbar({ onToggleSidebar, onNavigate, activeModuleId }: NavbarProps) {
+  const router = useRouter();
   const [open, setOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
 
@@ -61,12 +63,12 @@ export function Navbar({ onToggleSidebar, onNavigate, activeModuleId }: NavbarPr
           <Menu className="h-5 w-5" />
         </button>
 
-        {/* Logo */}
+        {/* Logo — clicking goes to the Course Overview dashboard */}
         <Link
-          href="#"
+          href="/"
           onClick={(e) => {
             e.preventDefault();
-            onNavigate("phase-1/middleware");
+            router.push("/");
           }}
           className="flex items-center gap-2.5 group"
         >

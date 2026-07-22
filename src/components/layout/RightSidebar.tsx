@@ -90,7 +90,7 @@ export function RightSidebar({
   };
 
   return (
-    <aside className="hidden xl:flex sticky top-14 z-20 h-[calc(100vh-3.5rem)] w-64 shrink-0 flex-col border-l border-border/60 bg-background/40">
+    <aside className="hidden xl:flex sticky top-14 z-20 h-[calc(100vh-3.5rem)] w-64 shrink-0 flex-col border-l border-border/60 bg-[oklch(0.16_0.018_255)]/60 backdrop-blur-sm">
       <div className="flex-1 overflow-y-auto px-5 py-5 scrollbar-thin">
         {/* On this page */}
         <div className="mb-6">

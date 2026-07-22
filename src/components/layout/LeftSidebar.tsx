@@ -226,13 +226,13 @@ function PhaseItem({
                     <button
                       onClick={() => onNavigate(module.id)}
                       className={cn(
-                        "group flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[13px] transition-colors",
+                        "group flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[13px] transition-all duration-200",
                         isActiveModule
                           ? "bg-primary/15 text-primary font-medium"
-                          : "text-sidebar-foreground/60 hover:bg-sidebar-accent/40 hover:text-sidebar-foreground/90"
+                          : "text-sidebar-foreground/60 hover:bg-sidebar-accent/40 hover:text-sidebar-foreground/90 hover:translate-x-0.5"
                       )}
                     >
-                      <span className="shrink-0">
+                      <span className="shrink-0 transition-transform group-hover:scale-110">
                         {isDone ? (
                           <Check className="h-3.5 w-3.5 text-emerald-400" />
                         ) : isActiveModule ? (

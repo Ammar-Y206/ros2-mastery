@@ -1,5 +1,6 @@
 import { Suspense, createElement } from "react";
 import { AppShell } from "@/components/layout/AppShell";
+import { OverviewWrapper } from "@/components/layout/OverviewWrapper";
 import { getContentComponent } from "@/lib/content-registry";
 import { findModule } from "@/lib/course-data";
 import { Callout } from "@/components/mdx/Callout";
@@ -15,6 +16,8 @@ interface PageProps {
 
 export default async function Home({ searchParams }: PageProps) {
   const params = await searchParams;
+  // If no `m` param, show the Course Overview dashboard.
+  const showOverview = !params.m;
   const moduleId = resolveModuleId(params.m);
   const ContentComponent = getContentComponent(moduleId);
 
@@ -26,16 +29,20 @@ export default async function Home({ searchParams }: PageProps) {
         </div>
       }
     >
-      <AppShell moduleId={moduleId}>
-        {ContentComponent
-          ? createElement(ContentComponent, { components: MDX_COMPONENTS })
-          : (
-            <div className="p-8 text-muted-foreground">
-              Content not found for module: {moduleId}
-            </div>
-          )
-        }
-      </AppShell>
+      {showOverview ? (
+        <OverviewWrapper />
+      ) : (
+        <AppShell moduleId={moduleId}>
+          {ContentComponent
+            ? createElement(ContentComponent, { components: MDX_COMPONENTS })
+            : (
+              <div className="p-8 text-muted-foreground">
+                Content not found for module: {moduleId}
+              </div>
+            )
+          }
+        </AppShell>
+      )}
     </Suspense>
   );
 }
