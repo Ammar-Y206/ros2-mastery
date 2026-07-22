@@ -26,12 +26,17 @@ export function OverviewWrapper() {
     router.push("/?view=achievements");
   };
 
+  const handleCompleted = () => {
+    router.push("/?view=completed");
+  };
+
   return (
     <CourseOverview
       onNavigate={handleNavigate}
       onDismiss={handleDismiss}
       onBookmarks={handleBookmarks}
       onAchievements={handleAchievements}
+      onCompleted={handleCompleted}
     />
   );
 }

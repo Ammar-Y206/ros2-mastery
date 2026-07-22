@@ -25,6 +25,7 @@ import { ThemeToggle } from "@/components/layout/ThemeToggle";
 import { SettingsDialog } from "@/components/layout/SettingsDialog";
 import { BookmarksButton } from "@/components/layout/BookmarksButton";
 import { AchievementsButton } from "@/components/layout/AchievementsButton";
+import { CompletedButton } from "@/components/layout/CompletedButton";
 import { AchievementWatcher } from "@/components/layout/AchievementWatcher";
 
 interface CourseOverviewProps {
@@ -32,6 +33,7 @@ interface CourseOverviewProps {
   onDismiss: () => void;
   onBookmarks?: () => void;
   onAchievements?: () => void;
+  onCompleted?: () => void;
 }
 
 /**
@@ -39,7 +41,7 @@ interface CourseOverviewProps {
  * cards with progress, estimated time, objectives, and a "Continue" CTA.
  * Shown when the user clicks the logo or visits without a module param.
  */
-export function CourseOverview({ onNavigate, onDismiss, onBookmarks, onAchievements }: CourseOverviewProps) {
+export function CourseOverview({ onNavigate, onDismiss, onBookmarks, onAchievements, onCompleted }: CourseOverviewProps) {
   const completed = useProgressStore((s) => s.completedModules);
   const lastVisited = useProgressStore((s) => s.lastVisitedModule);
   const hydrated = useProgressHydrated();
@@ -91,6 +93,7 @@ export function CourseOverview({ onNavigate, onDismiss, onBookmarks, onAchieveme
       {/* Floating top-right controls */}
       <div className="fixed right-4 top-4 z-50 flex items-center gap-0.5">
         {onBookmarks && <BookmarksButton onClick={onBookmarks} />}
+        {onCompleted && <CompletedButton onClick={onCompleted} />}
         {onAchievements && <AchievementsButton onClick={onAchievements} />}
         <ThemeToggle />
         <SettingsDialog />
@@ -103,9 +106,17 @@ export function CourseOverview({ onNavigate, onDismiss, onBookmarks, onAchieveme
       <div className="relative overflow-hidden border-b border-border/60">
         {/* Grid background */}
         <div className="grid-bg absolute inset-0 opacity-40" aria-hidden />
-        {/* Gradient glow */}
+        {/* Gradient mesh — multiple radial glows for atmosphere */}
         <div
           className="absolute -top-40 left-1/2 h-80 w-[600px] -translate-x-1/2 rounded-full bg-cyan-500/10 blur-3xl"
+          aria-hidden
+        />
+        <div
+          className="absolute -top-20 right-10 h-60 w-60 rounded-full bg-violet-500/8 blur-3xl"
+          aria-hidden
+        />
+        <div
+          className="absolute top-40 left-10 h-48 w-48 rounded-full bg-teal-500/8 blur-3xl"
           aria-hidden
         />
         <div className="relative mx-auto max-w-6xl px-5 py-16 lg:px-10 lg:py-20">
@@ -225,16 +236,25 @@ export function CourseOverview({ onNavigate, onDismiss, onBookmarks, onAchieveme
         </div>
 
         <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-          {COURSE_PHASES.map((phase, idx) => (
-            <PhaseCard
-              key={phase.id}
-              phase={phase}
-              index={idx}
-              completed={completed}
-              hydrated={hydrated}
-              onNavigate={onNavigate}
-            />
-          ))}
+          {COURSE_PHASES.map((phase, idx) => {
+            // Active phase = the phase containing the last visited module,
+            // or the first phase with incomplete modules if no last visited.
+            const isActivePhase = hydrated && (
+              (lastVisited && phase.modules.some((m) => m.id === lastVisited)) ||
+              (!lastVisited && phase === COURSE_PHASES.find((p) => p.modules.some((m) => !completed[m.id])))
+            );
+            return (
+              <PhaseCard
+                key={phase.id}
+                phase={phase}
+                index={idx}
+                completed={completed}
+                hydrated={hydrated}
+                onNavigate={onNavigate}
+                isActive={isActivePhase}
+              />
+            );
+          })}
         </div>
       </div>
 
@@ -283,12 +303,14 @@ function PhaseCard({
   completed,
   hydrated,
   onNavigate,
+  isActive,
 }: {
   phase: NavPhase;
   index: number;
   completed: Record<string, boolean>;
   hydrated: boolean;
   onNavigate: (moduleId: string) => void;
+  isActive?: boolean;
 }) {
   const accent = ACCENT_CLASSES[phase.accent];
   const PhaseIcon = (Icons[phase.icon as keyof typeof Icons] ??
@@ -313,13 +335,26 @@ function PhaseCard({
       }
       className={cn(
         "group relative flex h-full flex-col overflow-hidden rounded-xl border bg-card/40 p-5 text-left transition-all duration-300 hover:-translate-y-1 hover:shadow-2xl hover:shadow-cyan-500/10",
-        accent.border
+        accent.border,
+        isActive && "ring-2 ring-cyan-400/50 ring-offset-2 ring-offset-background shadow-lg shadow-cyan-500/10"
       )}
     >
+      {/* Active phase indicator */}
+      {isActive && (
+        <div className="absolute right-3 top-3 z-10 flex items-center gap-1 rounded-full border border-cyan-400/40 bg-cyan-500/15 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-cyan-300">
+          <span className="relative flex h-1.5 w-1.5">
+            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-cyan-400 opacity-75" />
+            <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-cyan-400" />
+          </span>
+          Current
+        </div>
+      )}
+
       {/* Top accent gradient bar */}
       <div
         className={cn(
-          "absolute inset-x-0 top-0 h-1 opacity-70 transition-opacity group-hover:opacity-100"
+          "absolute inset-x-0 top-0 h-1 opacity-70 transition-opacity group-hover:opacity-100",
+          isActive && "opacity-100"
         )}
         style={{
           background: `linear-gradient(to right, var(--${phase.accent}-500, currentColor), var(--${phase.accent}-400, currentColor))`,

@@ -20,6 +20,7 @@ import { ThemeToggle } from "@/components/layout/ThemeToggle";
 import { SettingsDialog } from "@/components/layout/SettingsDialog";
 import { BookmarksButton } from "@/components/layout/BookmarksButton";
 import { AchievementsButton } from "@/components/layout/AchievementsButton";
+import { CompletedButton } from "@/components/layout/CompletedButton";
 import { RemainingTime } from "@/components/layout/RemainingTime";
 
 interface NavbarProps {
@@ -118,9 +119,10 @@ export function Navbar({ onToggleSidebar, onNavigate, activeModuleId }: NavbarPr
           <RemainingTime />
         </div>
 
-        {/* Bookmarks + Achievements + Theme toggle + Settings */}
+        {/* Bookmarks + Completed + Achievements + Theme toggle + Settings */}
         <div className="flex items-center gap-0.5">
           <BookmarksButton onClick={() => router.push("/?view=bookmarks")} />
+          <CompletedButton onClick={() => router.push("/?view=completed")} />
           <AchievementsButton onClick={() => router.push("/?view=achievements")} />
           <ThemeToggle />
           <SettingsDialog />

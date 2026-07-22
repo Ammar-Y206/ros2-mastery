@@ -615,3 +615,64 @@ No critical bugs found — all 7 phases + all routes returned HTTP 200 with zero
 4. **Add full-text search** — command palette searches module titles only.
 5. **Add print/export to PDF** — for offline study.
 6. **Add estimated time per phase in the sidebar** — next to each phase's completion count.
+
+---
+Task ID: 14 (Cron Review Round 7)
+Agent: Main (orchestrator) — webDevReview cron trigger
+Task: Assess project status, perform QA via agent-browser, improve styling, add new features.
+
+## Current Project Status Assessment
+The platform was stable from Round 6 with all features working. QA via agent-browser + VLM analysis identified these improvement opportunities:
+1. No Completed Lessons view (#2 recommendation from Round 6)
+2. No active phase indicator on the overview (#3 VLM recommendation)
+3. Overview hero lacked gradient mesh atmosphere (#4 VLM recommendation)
+4. No connecting visual element between phase cards
+
+No critical bugs found — all 7 phases + all routes returned HTTP 200 with zero console errors.
+
+## Completed Modifications
+
+### New Components Created (3 files)
+1. **`src/components/layout/CompletedView.tsx`** — full-screen page showing all completed lessons. Features:
+   - Header with CheckCircle2 icon, "Completed Lessons" title, count subtitle, back-to-overview link
+   - Each completed lesson shows as a card with emerald check icon, phase label, lesson title, reading time, unmark-complete button (RotateCcw icon), and navigate arrow
+   - Empty state with Inbox icon, helpful message mentioning the `M` keyboard shortcut, and a "Browse Lessons" CTA
+   - Cards use emerald accent color for borders and icons
+
+2. **`src/components/layout/CompletedWrapper.tsx`** — client router wrapper
+
+3. **`src/components/layout/CompletedButton.tsx`** — reusable navbar icon (CheckCircle2) with emerald badge showing completed count. Hidden when 0 or before hydration. Added to both Navbar and CourseOverview floating controls.
+
+### Enhanced Existing Components
+4. **`page.tsx`** — added `?view=completed` routing. Five-way route: `?view=bookmarks`, `?view=achievements`, `?view=completed`, `?m=moduleId`, (nothing) → overview.
+
+5. **`Navbar.tsx`** — added CompletedButton (with emerald badge) between BookmarksButton and AchievementsButton. Navigates to `/?view=completed`.
+
+6. **`CourseOverview.tsx`** — three major enhancements:
+   - **Active phase indicator**: added `isActive` prop to PhaseCard. The active phase (containing lastVisited module, or first phase with incomplete modules) gets a cyan ring, shadow glow, and a "Current" badge with pulsing dot in the top-right corner.
+   - **Gradient mesh background**: added 2 additional radial glow divs to the hero — a violet glow (top-right) and a teal glow (bottom-left), complementing the existing cyan glow. Total 3 blurred radial gradients create atmospheric depth.
+   - **CompletedButton**: added to floating top-right controls between Bookmarks and Achievements.
+
+7. **`OverviewWrapper.tsx`** — passes `onCompleted` handler
+
+## Verification Results
+- **All 7 phases + overview + bookmarks + achievements + completed**: HTTP 200, zero console errors
+- **Completed page**: confirmed renders with "Completed Lessons" h1, empty state shows when no completions
+- **CompletedButton**: confirmed present in navbar (emerald badge)
+- **Active phase indicator**: confirmed "Current" badge appears on the active phase card
+- **Gradient mesh**: confirmed 3 `blur-3xl` elements on the overview hero (cyan + violet + teal)
+- **Navbar features**: BookmarksButton, CompletedButton, AchievementsButton, RemainingTime, ThemeToggle, SettingsDialog all present
+- **Lint**: 0 errors, 0 warnings
+
+## Unresolved Issues / Risks
+- **None critical** — all features working as designed
+- **Minor**: The active phase detection logic runs on every render but is lightweight (7-phase iteration). Acceptable.
+- **Minor**: The "Current" badge with pulsing dot uses `animate-ping` which is a Tailwind built-in animation — performant and smooth.
+
+## Priority Recommendations for Next Phase
+1. **Expand Phase 2-7 content to full lesson depth** — Phase 1 is comprehensive; Phases 2-7 are still overviews. This remains the highest-value content task.
+2. **Add full-text search** — command palette searches module titles only.
+3. **Add print/export to PDF** — for offline study.
+4. **Add estimated time per phase in the sidebar** — next to each phase's completion count.
+5. **Add a "Learning streak" tracker** — consecutive days with completed lessons.
+6. **Add keyboard shortcut to toggle between overview/lesson** — e.g. `O` for overview.

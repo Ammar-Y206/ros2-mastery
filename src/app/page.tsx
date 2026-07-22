@@ -3,6 +3,7 @@ import { AppShell } from "@/components/layout/AppShell";
 import { OverviewWrapper } from "@/components/layout/OverviewWrapper";
 import { BookmarksWrapper } from "@/components/layout/BookmarksWrapper";
 import { AchievementsWrapper } from "@/components/layout/AchievementsWrapper";
+import { CompletedWrapper } from "@/components/layout/CompletedWrapper";
 import { getContentComponent } from "@/lib/content-registry";
 import { findModule } from "@/lib/course-data";
 import { Callout } from "@/components/mdx/Callout";
@@ -20,11 +21,13 @@ export default async function Home({ searchParams }: PageProps) {
   const params = await searchParams;
   // Route: ?view=bookmarks    → Bookmarks page
   // Route: ?view=achievements → Achievements page
+  // Route: ?view=completed    → Completed Lessons page
   // Route: ?m=moduleId        → Lesson page
   // Route: (nothing)          → Course Overview dashboard
   const showBookmarks = params.view === "bookmarks";
   const showAchievements = params.view === "achievements";
-  const showOverview = !params.m && !showBookmarks && !showAchievements;
+  const showCompleted = params.view === "completed";
+  const showOverview = !params.m && !showBookmarks && !showAchievements && !showCompleted;
   const moduleId = resolveModuleId(params.m);
   const ContentComponent = getContentComponent(moduleId);
 
@@ -40,6 +43,8 @@ export default async function Home({ searchParams }: PageProps) {
         <BookmarksWrapper />
       ) : showAchievements ? (
         <AchievementsWrapper />
+      ) : showCompleted ? (
+        <CompletedWrapper />
       ) : showOverview ? (
         <OverviewWrapper />
       ) : (
