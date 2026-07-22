@@ -16,6 +16,8 @@ import {
   CommandList,
 } from "@/components/ui/command";
 import { COURSE_PHASES } from "@/lib/course-data";
+import { ThemeToggle } from "@/components/layout/ThemeToggle";
+import { SettingsDialog } from "@/components/layout/SettingsDialog";
 
 interface NavbarProps {
   onToggleSidebar: () => void;
@@ -110,6 +112,12 @@ export function Navbar({ onToggleSidebar, onNavigate, activeModuleId }: NavbarPr
         {/* Progress indicator */}
         <div className="hidden sm:flex items-center">
           <ProgressIndicator moduleIds={ALL_MODULE_IDS} variant="compact" />
+        </div>
+
+        {/* Theme toggle + Settings */}
+        <div className="flex items-center gap-0.5">
+          <ThemeToggle />
+          <SettingsDialog />
         </div>
 
         {/* External links */}

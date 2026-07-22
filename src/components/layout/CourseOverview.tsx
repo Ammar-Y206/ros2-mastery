@@ -21,6 +21,8 @@ import {
   Target,
   Play,
 } from "lucide-react";
+import { ThemeToggle } from "@/components/layout/ThemeToggle";
+import { SettingsDialog } from "@/components/layout/SettingsDialog";
 
 interface CourseOverviewProps {
   onNavigate: (moduleId: string) => void;
@@ -81,6 +83,12 @@ export function CourseOverview({ onNavigate, onDismiss }: CourseOverviewProps) {
 
   return (
     <div className="min-h-screen bg-background">
+      {/* Floating top-right controls */}
+      <div className="fixed right-4 top-4 z-50 flex items-center gap-0.5">
+        <ThemeToggle />
+        <SettingsDialog />
+      </div>
+
       {/* Hero header */}
       <div className="relative overflow-hidden border-b border-border/60">
         {/* Grid background */}
@@ -206,7 +214,7 @@ export function CourseOverview({ onNavigate, onDismiss }: CourseOverviewProps) {
           <div className="h-px flex-1 bg-gradient-to-r from-border to-transparent" />
         </div>
 
-        <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
           {COURSE_PHASES.map((phase, idx) => (
             <PhaseCard
               key={phase.id}
@@ -294,22 +302,17 @@ function PhaseCard({
         onNavigate(nextModule?.id ?? phase.modules[0].id)
       }
       className={cn(
-        "group relative flex flex-col overflow-hidden rounded-xl border bg-card/40 p-5 text-left transition-all duration-300 hover:scale-[1.02] hover:shadow-xl",
-        accent.border,
-        "hover:" + accent.border
+        "group relative flex h-full flex-col overflow-hidden rounded-xl border bg-card/40 p-5 text-left transition-all duration-300 hover:-translate-y-1 hover:shadow-2xl hover:shadow-cyan-500/10",
+        accent.border
       )}
-      style={{
-        animationDelay: `${index * 50}ms`,
-      }}
     >
-      {/* Top accent gradient */}
+      {/* Top accent gradient bar */}
       <div
         className={cn(
-          "absolute inset-x-0 top-0 h-1 bg-gradient-to-r opacity-60",
-          `from-${phase.accent}-500 to-${phase.accent}-400`
+          "absolute inset-x-0 top-0 h-1 opacity-70 transition-opacity group-hover:opacity-100"
         )}
         style={{
-          background: `linear-gradient(to right, var(--tw-gradient-stops))`,
+          background: `linear-gradient(to right, var(--${phase.accent}-500, currentColor), var(--${phase.accent}-400, currentColor))`,
         }}
       />
 
@@ -317,7 +320,7 @@ function PhaseCard({
       <div className="mb-4 flex items-start justify-between">
         <div
           className={cn(
-            "flex h-12 w-12 items-center justify-center rounded-xl border text-lg font-bold transition-transform group-hover:scale-110",
+            "flex h-12 w-12 items-center justify-center rounded-xl border text-lg font-bold transition-transform duration-300 group-hover:scale-110 group-hover:rotate-3",
             allDone
               ? "border-emerald-500/40 bg-emerald-500/15 text-emerald-300"
               : cn(accent.border, accent.bg, accent.text)
@@ -325,19 +328,24 @@ function PhaseCard({
         >
           {allDone ? <Check className="h-6 w-6" /> : phase.number}
         </div>
-        <PhaseIcon className={cn("h-5 w-5 opacity-40", accent.text)} />
+        <PhaseIcon
+          className={cn(
+            "h-5 w-5 opacity-40 transition-opacity group-hover:opacity-70",
+            accent.text
+          )}
+        />
       </div>
 
       {/* Title */}
-      <h3 className="mb-1 text-lg font-bold text-foreground">
+      <h3 className="mb-1 text-lg font-bold leading-tight text-foreground">
         {phase.title}
       </h3>
-      <p className="mb-3 text-xs font-medium uppercase tracking-wider text-muted-foreground/60">
+      <p className="mb-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/60">
         {phase.subtitle}
       </p>
 
-      {/* Mission excerpt */}
-      <p className="mb-4 line-clamp-2 text-sm text-muted-foreground">
+      {/* Mission excerpt — no line-clamp, natural height */}
+      <p className="mb-4 text-sm leading-relaxed text-muted-foreground">
         {phase.mission}
       </p>
 
@@ -348,13 +356,18 @@ function PhaseCard({
             key={i}
             className="flex items-start gap-2 text-xs text-muted-foreground/80"
           >
-            <span className={cn("mt-1.5 h-1 w-1 shrink-0 rounded-full", accent.dot)} />
-            <span className="line-clamp-1">{obj}</span>
+            <span
+              className={cn(
+                "mt-1.5 h-1 w-1 shrink-0 rounded-full",
+                accent.dot
+              )}
+            />
+            <span>{obj}</span>
           </div>
         ))}
       </div>
 
-      {/* Footer: progress + time */}
+      {/* Footer: progress + time — pushed to bottom */}
       <div className="mt-auto border-t border-border/40 pt-3">
         <div className="mb-2 flex items-center justify-between text-xs">
           <span className="flex items-center gap-1.5 text-muted-foreground">
@@ -387,7 +400,7 @@ function PhaseCard({
       {/* Hover arrow */}
       <div
         className={cn(
-          "absolute right-4 top-4 flex h-7 w-7 items-center justify-center rounded-full opacity-0 transition-all group-hover:opacity-100",
+          "absolute right-4 top-4 flex h-7 w-7 items-center justify-center rounded-full opacity-0 transition-all duration-300 group-hover:opacity-100",
           accent.bg,
           accent.text
         )}

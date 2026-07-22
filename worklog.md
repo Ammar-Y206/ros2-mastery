@@ -390,3 +390,80 @@ No critical bugs found — all 7 phases returned HTTP 200 with zero console erro
 4. **Add print/export to PDF** — for offline study.
 5. **Add progress export/import** — allow users to backup/restore their progress via JSON file.
 6. **Add "reset progress" settings panel** — currently no UI to reset all progress (store action exists but no button).
+
+---
+Task ID: 11 (Cron Review Round 4)
+Agent: Main (orchestrator) — webDevReview cron trigger
+Task: Assess project status, perform QA via agent-browser, improve styling, add new features.
+
+## Current Project Status Assessment
+The platform was stable from Round 3 with all features working. QA via agent-browser + VLM analysis identified these improvement opportunities:
+1. No dark/light theme toggle — dark-only; a theme switcher was the #2 recommendation from Round 3
+2. No settings panel — no UI to reset progress (store action existed but no button)
+3. Phase cards had truncated mission text (line-clamp-2) and inconsistent heights
+4. No hover lift effect on cards (only scale)
+5. Card grid spacing was tight (gap-5)
+
+No critical bugs found — all 7 phases returned HTTP 200 with zero console errors.
+
+## Completed Modifications
+
+### New Components Created (3 files)
+1. **`src/components/ThemeProvider.tsx`** — wraps next-themes with defaults: `attribute="class"`, `defaultTheme="dark"`, `enableSystem={false}`, `disableTransitionOnChange`, `storageKey="ros2-mastery-theme"`. Client component.
+
+2. **`src/components/layout/ThemeToggle.tsx`** — dropdown button with Moon/Sun icons. Uses `useTheme()` from next-themes. Includes a mounting guard (`useState(false)` → `useEffect` sets true) to avoid SSR hydration mismatch. Dropdown menu with Light (Sun/amber) and Dark (Moon/cyan) options, highlighting the active theme with `bg-accent`.
+
+3. **`src/components/layout/SettingsDialog.tsx`** — gear-icon button opening a dialog with 3 progress management actions:
+   - **Export Progress** — downloads localStorage data as a timestamped JSON file (`ros2-mastery-progress-YYYY-MM-DD.json`)
+   - **Import Progress** — hidden file input reads a JSON file, validates it, writes to localStorage, rehydrates the store
+   - **Reset All Progress** — AlertDialog confirmation before calling `resetProgress()`, styled with rose/danger theme
+   - All actions show toast notifications on success/failure
+
+### Enhanced Existing Components
+4. **`layout.tsx`**:
+   - Wrapped everything in `<ThemeProvider>` — removed hardcoded `className="dark"` from `<html>`, letting next-themes manage the class based on localStorage
+   - Theme now persists across page reloads via `storageKey="ros2-mastery-theme"`
+
+5. **`Navbar.tsx`**:
+   - Added `ThemeToggle` + `SettingsDialog` to the navbar (between progress indicator and external links)
+   - Both are in a flex container with `gap-0.5`
+
+6. **`CourseOverview.tsx`**:
+   - Added floating top-right controls (`fixed right-4 top-4 z-50`) with `ThemeToggle` + `SettingsDialog` — visible on the overview dashboard which has no navbar
+   - **Phase cards improved**:
+     - Removed `line-clamp-2` from mission text — now shows full text naturally
+     - Removed `line-clamp-1` from objectives — full text
+     - Added `h-full` to card button + `flex flex-col` so all cards in a row match height (footer pushed to bottom with `mt-auto`)
+     - Hover effect: `hover:scale-[1.02]` → `hover:-translate-y-1 hover:shadow-2xl hover:shadow-cyan-500/10` (lift instead of scale)
+     - Phase badge: added `group-hover:rotate-3` for a playful tilt
+     - Phase icon: `opacity-40` → `group-hover:opacity-70` for hover reveal
+     - Subtitle: `text-xs` → `text-[11px] font-semibold` for better hierarchy
+     - Mission text: added `leading-relaxed` for readability
+     - Top accent bar: `opacity-60` → `opacity-70 group-hover:opacity-100`
+   - Card grid: `gap-5` → `gap-6` for more breathing room
+
+## Verification Results
+- **All 7 phases**: HTTP 200, zero console errors, zero page errors
+- **Course Overview**: HTTP 200, 7 phase cards with full mission text (no truncation)
+- **Theme toggle**: confirmed present in both navbar and overview; clicking opens dropdown with Light/Dark options
+- **Light mode**: confirmed working — `htmlClass: "light"`, `bgColor: oklch(0.985 0.002 240)` (light background)
+- **Dark mode**: confirmed — `htmlClass: "dark"`, `bgColor: oklch(0.14 0.015 250)` (dark background)
+- **Theme persistence**: stored in localStorage under `ros2-mastery-theme` key
+- **Settings dialog**: confirmed opens with "Settings" title, shows Export/Import/Reset actions
+- **Card hover lift**: confirmed `hover:-translate-y-1` class present on all 7 cards
+- **Card grid gap**: confirmed 24px (`gap-6`)
+- **Lint**: 0 errors, 0 warnings
+- **VLM analysis**: confirmed "full descriptive text for each phase", "hover lift effect", "theme toggle and settings button in the top-right"
+
+## Unresolved Issues / Risks
+- **None critical** — all features working as designed
+- **Minor**: With 7 phases (odd number), the last row of the 3-column grid has 1 card, leaving empty space on the right. This is inherent to a 3-column layout with 7 items — acceptable.
+- **Minor**: The light theme code blocks still use a dark `#0d1117` background (GitHub Dark style). This is intentional — code blocks typically stay dark even in light mode for readability, matching platforms like GitHub and Stripe docs.
+
+## Priority Recommendations for Next Phase
+1. **Expand Phase 2-7 content to full lesson depth** — Phase 1 is comprehensive; Phases 2-7 are still overviews. This remains the highest-value content task.
+2. **Add full-text search** — command palette searches module titles only; searching within content would be valuable.
+3. **Add print/export to PDF** — for offline study.
+4. **Add a "Bookmarks" view** — a page showing all bookmarked lessons in one place.
+5. **Add lesson prev/next keyboard shortcuts** — arrow keys to navigate between lessons.
+6. **Add estimated remaining time** — "X hours left" in the navbar based on incomplete modules.
