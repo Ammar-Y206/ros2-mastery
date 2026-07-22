@@ -13,6 +13,7 @@ import { CompletionCelebration } from "@/components/layout/CompletionCelebration
 import { MobileBottomNav } from "@/components/layout/MobileBottomNav";
 import { useModuleProgress } from "@/hooks/use-progress";
 import { useToast } from "@/hooks/use-toast";
+import { getAdjacentModules } from "@/lib/course-data";
 
 interface AppShellProps {
   moduleId: string;
@@ -45,7 +46,7 @@ export function AppShell({ moduleId, children }: AppShellProps) {
     [router, searchParams]
   );
 
-  // Global keyboard shortcuts for lesson actions (M, B, T)
+  // Global keyboard shortcuts for lesson actions (M, B, T, Arrow keys)
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement;
@@ -76,11 +77,21 @@ export function AppShell({ moduleId, children }: AppShellProps) {
       } else if (e.key.toLowerCase() === "t") {
         e.preventDefault();
         window.scrollTo({ top: 0, behavior: "smooth" });
+      } else if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+        // Navigate between lessons with arrow keys
+        const adjacent = getAdjacentModules(moduleId);
+        if (e.key === "ArrowLeft" && adjacent.prev) {
+          e.preventDefault();
+          handleNavigate(adjacent.prev.module.id);
+        } else if (e.key === "ArrowRight" && adjacent.next) {
+          e.preventDefault();
+          handleNavigate(adjacent.next.module.id);
+        }
       }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [toggle, toggleBookmark, bookmarked, toast]);
+  }, [toggle, toggleBookmark, bookmarked, toast, moduleId, handleNavigate]);
 
   return (
     <div className="flex min-h-screen flex-col bg-background">

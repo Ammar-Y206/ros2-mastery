@@ -23,10 +23,12 @@ import {
 } from "lucide-react";
 import { ThemeToggle } from "@/components/layout/ThemeToggle";
 import { SettingsDialog } from "@/components/layout/SettingsDialog";
+import { BookmarksButton } from "@/components/layout/BookmarksButton";
 
 interface CourseOverviewProps {
   onNavigate: (moduleId: string) => void;
   onDismiss: () => void;
+  onBookmarks?: () => void;
 }
 
 /**
@@ -34,7 +36,7 @@ interface CourseOverviewProps {
  * cards with progress, estimated time, objectives, and a "Continue" CTA.
  * Shown when the user clicks the logo or visits without a module param.
  */
-export function CourseOverview({ onNavigate, onDismiss }: CourseOverviewProps) {
+export function CourseOverview({ onNavigate, onDismiss, onBookmarks }: CourseOverviewProps) {
   const completed = useProgressStore((s) => s.completedModules);
   const lastVisited = useProgressStore((s) => s.lastVisitedModule);
   const hydrated = useProgressHydrated();
@@ -85,6 +87,7 @@ export function CourseOverview({ onNavigate, onDismiss }: CourseOverviewProps) {
     <div className="min-h-screen bg-background">
       {/* Floating top-right controls */}
       <div className="fixed right-4 top-4 z-50 flex items-center gap-0.5">
+        {onBookmarks && <BookmarksButton onClick={onBookmarks} />}
         <ThemeToggle />
         <SettingsDialog />
       </div>

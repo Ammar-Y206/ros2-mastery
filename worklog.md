@@ -467,3 +467,78 @@ No critical bugs found — all 7 phases returned HTTP 200 with zero console erro
 4. **Add a "Bookmarks" view** — a page showing all bookmarked lessons in one place.
 5. **Add lesson prev/next keyboard shortcuts** — arrow keys to navigate between lessons.
 6. **Add estimated remaining time** — "X hours left" in the navbar based on incomplete modules.
+
+---
+Task ID: 12 (Cron Review Round 5)
+Agent: Main (orchestrator) — webDevReview cron trigger
+Task: Assess project status, perform QA via agent-browser, improve styling, add new features.
+
+## Current Project Status Assessment
+The platform was stable from Round 4 with all features working. QA via agent-browser + VLM analysis identified these improvement opportunities:
+1. No bookmarks view — users could bookmark lessons but had no way to view all bookmarks in one place (#4 recommendation from Round 4)
+2. No estimated remaining time in navbar (#6 recommendation)
+3. No arrow key navigation between lessons (#5 recommendation)
+4. Navbar external link icons lacked hover scale effect
+5. Keyboard shortcuts panel didn't document arrow key navigation
+
+No critical bugs found — all 7 phases returned HTTP 200 with zero console errors.
+
+## Completed Modifications
+
+### New Components Created (4 files)
+1. **`src/components/layout/BookmarksView.tsx`** — full-screen page showing all bookmarked lessons. Features:
+   - Header with bookmark icon, "Bookmarked Lessons" title, count subtitle, and back-to-overview link
+   - Each bookmark shows as a card with phase icon, phase label, lesson title, reading time, remove-bookmark button (trash icon), and navigate arrow
+   - Empty state with BookmarkX icon, helpful message mentioning the `B` keyboard shortcut, and a "Browse Lessons" CTA
+   - Cards use the phase's accent color for borders and icons
+
+2. **`src/components/layout/BookmarksWrapper.tsx`** — client wrapper wiring BookmarksView to Next.js router
+
+3. **`src/components/layout/BookmarksButton.tsx`** — reusable navbar icon button with a badge showing the bookmark count. Badge is cyan with white text, hidden when count is 0 or before hydration. Includes tooltip.
+
+4. **`src/components/layout/RemainingTime.tsx`** — navbar widget showing "Xh Ym left" based on the sum of reading times of all incomplete modules. Uses Hourglass icon (cyan), tabular-nums font, tooltip. Hidden when all lessons are complete or no reading times. Hidden on mobile (md:flex).
+
+### Enhanced Existing Components
+5. **`page.tsx`** — added `?view=bookmarks` routing. Three-way route: `?view=bookmarks` → Bookmarks page, `?m=moduleId` → Lesson page, (nothing) → Course Overview dashboard.
+
+6. **`Navbar.tsx`**:
+   - Added BookmarksButton (with badge count) → navigates to `/?view=bookmarks`
+   - Added RemainingTime widget next to the progress indicator
+   - External link icons: `hover:text-foreground` → `hover:text-cyan-400 active:scale-95` for better hover feedback
+   - Both navbar icons now have `transition-all active:scale-95` press animation
+
+7. **`CourseOverview.tsx`**:
+   - Added optional `onBookmarks` prop
+   - Added BookmarksButton to the floating top-right controls (between ThemeToggle and SettingsDialog)
+
+8. **`OverviewWrapper.tsx`** — passes `onBookmarks` handler that navigates to `/?view=bookmarks`
+
+9. **`AppShell.tsx`** — added arrow key navigation:
+   - `ArrowLeft` → navigate to previous lesson (if exists)
+   - `ArrowRight` → navigate to next lesson (if exists)
+   - Uses `getAdjacentModules()` from course-data
+   - Added `moduleId` and `handleNavigate` to the useEffect dependency array
+
+10. **`KeyboardShortcuts.tsx`** — added `←` (Previous lesson) and `→` (Next lesson) to the Navigation section of the shortcuts panel
+
+## Verification Results
+- **All 7 phases + overview + bookmarks**: HTTP 200, zero console errors, zero page errors
+- **Bookmarks page**: confirmed renders with "Bookmarked Lessons" h1, empty state shows when no bookmarks, bookmarked lessons appear as cards when present
+- **Bookmarks badge**: confirmed shows "1" after bookmarking a lesson via `B` key
+- **Remaining time**: confirmed shows "2h 55m left" (correct sum of incomplete lesson reading times)
+- **Arrow key navigation**: confirmed ArrowRight navigates from phase-1/middleware → phase-1/philosophy
+- **Navbar features**: confirmed BookmarksButton, RemainingTime, ThemeToggle, SettingsDialog all present
+- **Lint**: 0 errors, 0 warnings
+
+## Unresolved Issues / Risks
+- **None critical** — all features working as designed
+- **Minor**: The RemainingTime widget is hidden on mobile (md:flex) to avoid crowding the mobile navbar. This is intentional — mobile users can see progress via the sidebar footer.
+- **Minor**: Arrow key navigation only works when not typing in an input/textarea (correctly guarded).
+
+## Priority Recommendations for Next Phase
+1. **Expand Phase 2-7 content to full lesson depth** — Phase 1 is comprehensive; Phases 2-7 are still overviews. This remains the highest-value content task.
+2. **Add full-text search** — command palette searches module titles only; searching within content would be valuable.
+3. **Add print/export to PDF** — for offline study.
+4. **Add a "Completed Lessons" view** — similar to Bookmarks, but showing all completed lessons for review.
+5. **Add progress milestones/achievements** — e.g. "First lesson complete!", "Phase 1 mastered!", to gamify the experience.
+6. **Add estimated time per phase in the sidebar** — next to each phase's completion count.

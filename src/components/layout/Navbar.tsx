@@ -18,6 +18,8 @@ import {
 import { COURSE_PHASES } from "@/lib/course-data";
 import { ThemeToggle } from "@/components/layout/ThemeToggle";
 import { SettingsDialog } from "@/components/layout/SettingsDialog";
+import { BookmarksButton } from "@/components/layout/BookmarksButton";
+import { RemainingTime } from "@/components/layout/RemainingTime";
 
 interface NavbarProps {
   onToggleSidebar: () => void;
@@ -109,13 +111,15 @@ export function Navbar({ onToggleSidebar, onNavigate, activeModuleId }: NavbarPr
           <Search className="h-5 w-5" />
         </button>
 
-        {/* Progress indicator */}
-        <div className="hidden sm:flex items-center">
+        {/* Progress indicator + remaining time */}
+        <div className="hidden sm:flex items-center gap-2">
           <ProgressIndicator moduleIds={ALL_MODULE_IDS} variant="compact" />
+          <RemainingTime />
         </div>
 
-        {/* Theme toggle + Settings */}
+        {/* Theme toggle + Bookmarks + Settings */}
         <div className="flex items-center gap-0.5">
+          <BookmarksButton onClick={() => router.push("/?view=bookmarks")} />
           <ThemeToggle />
           <SettingsDialog />
         </div>
@@ -126,7 +130,7 @@ export function Navbar({ onToggleSidebar, onNavigate, activeModuleId }: NavbarPr
             href="https://docs.ros.org/en/humble/"
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex h-9 w-9 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+            className="inline-flex h-9 w-9 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-cyan-400 transition-all active:scale-95"
             aria-label="ROS2 Official Docs"
             title="ROS2 Official Docs"
           >
@@ -136,7 +140,7 @@ export function Navbar({ onToggleSidebar, onNavigate, activeModuleId }: NavbarPr
             href="https://github.com/ros2"
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex h-9 w-9 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+            className="inline-flex h-9 w-9 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-cyan-400 transition-all active:scale-95"
             aria-label="GitHub"
             title="ROS2 on GitHub"
           >

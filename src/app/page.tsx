@@ -1,6 +1,7 @@
 import { Suspense, createElement } from "react";
 import { AppShell } from "@/components/layout/AppShell";
 import { OverviewWrapper } from "@/components/layout/OverviewWrapper";
+import { BookmarksWrapper } from "@/components/layout/BookmarksWrapper";
 import { getContentComponent } from "@/lib/content-registry";
 import { findModule } from "@/lib/course-data";
 import { Callout } from "@/components/mdx/Callout";
@@ -11,13 +12,16 @@ import { Quiz } from "@/components/mdx/Quiz";
 const MDX_COMPONENTS = { Callout, CodeBlock, TerminalBlock, Quiz };
 
 interface PageProps {
-  searchParams: Promise<{ m?: string }>;
+  searchParams: Promise<{ m?: string; view?: string }>;
 }
 
 export default async function Home({ searchParams }: PageProps) {
   const params = await searchParams;
-  // If no `m` param, show the Course Overview dashboard.
-  const showOverview = !params.m;
+  // Route: ?view=bookmarks → Bookmarks page
+  // Route: ?m=moduleId     → Lesson page
+  // Route: (nothing)       → Course Overview dashboard
+  const showBookmarks = params.view === "bookmarks";
+  const showOverview = !params.m && !showBookmarks;
   const moduleId = resolveModuleId(params.m);
   const ContentComponent = getContentComponent(moduleId);
 
@@ -29,7 +33,9 @@ export default async function Home({ searchParams }: PageProps) {
         </div>
       }
     >
-      {showOverview ? (
+      {showBookmarks ? (
+        <BookmarksWrapper />
+      ) : showOverview ? (
         <OverviewWrapper />
       ) : (
         <AppShell moduleId={moduleId}>

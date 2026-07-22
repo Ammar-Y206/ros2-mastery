@@ -21,6 +21,8 @@ const SHORTCUTS: { section: string; items: ShortcutItem[] }[] = [
     items: [
       { keys: ["⌘", "K"], description: "Open search / command palette" },
       { keys: ["?"], description: "Show this keyboard shortcuts panel" },
+      { keys: ["←"], description: "Previous lesson" },
+      { keys: ["→"], description: "Next lesson" },
       { keys: ["Esc"], description: "Close dialog / overlay" },
     ],
   },

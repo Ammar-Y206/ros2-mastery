@@ -18,7 +18,15 @@ export function OverviewWrapper() {
     router.push("/?m=phase-1/middleware");
   };
 
+  const handleBookmarks = () => {
+    router.push("/?view=bookmarks");
+  };
+
   return (
-    <CourseOverview onNavigate={handleNavigate} onDismiss={handleDismiss} />
+    <CourseOverview
+      onNavigate={handleNavigate}
+      onDismiss={handleDismiss}
+      onBookmarks={handleBookmarks}
+    />
   );
 }
