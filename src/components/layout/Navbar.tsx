@@ -19,6 +19,7 @@ import { COURSE_PHASES } from "@/lib/course-data";
 import { ThemeToggle } from "@/components/layout/ThemeToggle";
 import { SettingsDialog } from "@/components/layout/SettingsDialog";
 import { BookmarksButton } from "@/components/layout/BookmarksButton";
+import { AchievementsButton } from "@/components/layout/AchievementsButton";
 import { RemainingTime } from "@/components/layout/RemainingTime";
 
 interface NavbarProps {
@@ -117,9 +118,10 @@ export function Navbar({ onToggleSidebar, onNavigate, activeModuleId }: NavbarPr
           <RemainingTime />
         </div>
 
-        {/* Theme toggle + Bookmarks + Settings */}
+        {/* Bookmarks + Achievements + Theme toggle + Settings */}
         <div className="flex items-center gap-0.5">
           <BookmarksButton onClick={() => router.push("/?view=bookmarks")} />
+          <AchievementsButton onClick={() => router.push("/?view=achievements")} />
           <ThemeToggle />
           <SettingsDialog />
         </div>

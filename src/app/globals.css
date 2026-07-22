@@ -179,13 +179,13 @@
     @apply scroll-mt-20 text-lg font-semibold mt-5 mb-2 text-foreground;
   }
   .prose-doc p {
-    @apply my-4 text-muted-foreground leading-7;
+    @apply my-4 text-muted-foreground leading-[1.75];
   }
   .prose-doc ul {
-    @apply my-4 ml-6 list-disc space-y-2 text-muted-foreground;
+    @apply my-4 ml-6 list-disc space-y-3 text-muted-foreground;
   }
   .prose-doc ol {
-    @apply my-4 ml-6 list-decimal space-y-2 text-muted-foreground;
+    @apply my-4 ml-6 list-decimal space-y-3 text-muted-foreground;
   }
   .prose-doc li {
     @apply leading-7;

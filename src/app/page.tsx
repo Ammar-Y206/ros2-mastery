@@ -2,6 +2,7 @@ import { Suspense, createElement } from "react";
 import { AppShell } from "@/components/layout/AppShell";
 import { OverviewWrapper } from "@/components/layout/OverviewWrapper";
 import { BookmarksWrapper } from "@/components/layout/BookmarksWrapper";
+import { AchievementsWrapper } from "@/components/layout/AchievementsWrapper";
 import { getContentComponent } from "@/lib/content-registry";
 import { findModule } from "@/lib/course-data";
 import { Callout } from "@/components/mdx/Callout";
@@ -17,11 +18,13 @@ interface PageProps {
 
 export default async function Home({ searchParams }: PageProps) {
   const params = await searchParams;
-  // Route: ?view=bookmarks → Bookmarks page
-  // Route: ?m=moduleId     → Lesson page
-  // Route: (nothing)       → Course Overview dashboard
+  // Route: ?view=bookmarks    → Bookmarks page
+  // Route: ?view=achievements → Achievements page
+  // Route: ?m=moduleId        → Lesson page
+  // Route: (nothing)          → Course Overview dashboard
   const showBookmarks = params.view === "bookmarks";
-  const showOverview = !params.m && !showBookmarks;
+  const showAchievements = params.view === "achievements";
+  const showOverview = !params.m && !showBookmarks && !showAchievements;
   const moduleId = resolveModuleId(params.m);
   const ContentComponent = getContentComponent(moduleId);
 
@@ -35,6 +38,8 @@ export default async function Home({ searchParams }: PageProps) {
     >
       {showBookmarks ? (
         <BookmarksWrapper />
+      ) : showAchievements ? (
+        <AchievementsWrapper />
       ) : showOverview ? (
         <OverviewWrapper />
       ) : (

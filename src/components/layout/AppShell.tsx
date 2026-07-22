@@ -11,6 +11,7 @@ import { BackToTop } from "@/components/layout/BackToTop";
 import { KeyboardShortcuts } from "@/components/layout/KeyboardShortcuts";
 import { CompletionCelebration } from "@/components/layout/CompletionCelebration";
 import { MobileBottomNav } from "@/components/layout/MobileBottomNav";
+import { AchievementWatcher } from "@/components/layout/AchievementWatcher";
 import { useModuleProgress } from "@/hooks/use-progress";
 import { useToast } from "@/hooks/use-toast";
 import { getAdjacentModules } from "@/lib/course-data";
@@ -145,6 +146,7 @@ export function AppShell({ moduleId, children }: AppShellProps) {
       <KeyboardShortcuts />
       <CompletionCelebration moduleId={moduleId} onNavigate={handleNavigate} />
       <MobileBottomNav moduleId={moduleId} onNavigate={handleNavigate} />
+      <AchievementWatcher />
     </div>
   );
 }

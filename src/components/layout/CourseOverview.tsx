@@ -24,11 +24,14 @@ import {
 import { ThemeToggle } from "@/components/layout/ThemeToggle";
 import { SettingsDialog } from "@/components/layout/SettingsDialog";
 import { BookmarksButton } from "@/components/layout/BookmarksButton";
+import { AchievementsButton } from "@/components/layout/AchievementsButton";
+import { AchievementWatcher } from "@/components/layout/AchievementWatcher";
 
 interface CourseOverviewProps {
   onNavigate: (moduleId: string) => void;
   onDismiss: () => void;
   onBookmarks?: () => void;
+  onAchievements?: () => void;
 }
 
 /**
@@ -36,7 +39,7 @@ interface CourseOverviewProps {
  * cards with progress, estimated time, objectives, and a "Continue" CTA.
  * Shown when the user clicks the logo or visits without a module param.
  */
-export function CourseOverview({ onNavigate, onDismiss, onBookmarks }: CourseOverviewProps) {
+export function CourseOverview({ onNavigate, onDismiss, onBookmarks, onAchievements }: CourseOverviewProps) {
   const completed = useProgressStore((s) => s.completedModules);
   const lastVisited = useProgressStore((s) => s.lastVisitedModule);
   const hydrated = useProgressHydrated();
@@ -88,9 +91,13 @@ export function CourseOverview({ onNavigate, onDismiss, onBookmarks }: CourseOve
       {/* Floating top-right controls */}
       <div className="fixed right-4 top-4 z-50 flex items-center gap-0.5">
         {onBookmarks && <BookmarksButton onClick={onBookmarks} />}
+        {onAchievements && <AchievementsButton onClick={onAchievements} />}
         <ThemeToggle />
         <SettingsDialog />
       </div>
+
+      {/* Achievement watcher — fires toasts when achievements unlock */}
+      <AchievementWatcher />
 
       {/* Hero header */}
       <div className="relative overflow-hidden border-b border-border/60">
@@ -124,8 +131,8 @@ export function CourseOverview({ onNavigate, onDismiss, onBookmarks }: CourseOve
               Topics to SLAM and Nav2.
             </p>
 
-            {/* Stats row */}
-            <div className="flex flex-wrap items-center gap-6 pt-2">
+            {/* Stats row — glassmorphism container */}
+            <div className="mt-2 inline-flex flex-wrap items-center gap-6 rounded-2xl border border-white/[0.06] bg-white/[0.02] px-6 py-4 backdrop-blur-md">
               <Stat
                 icon={Target}
                 label="Phases"

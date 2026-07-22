@@ -22,11 +22,16 @@ export function OverviewWrapper() {
     router.push("/?view=bookmarks");
   };
 
+  const handleAchievements = () => {
+    router.push("/?view=achievements");
+  };
+
   return (
     <CourseOverview
       onNavigate={handleNavigate}
       onDismiss={handleDismiss}
       onBookmarks={handleBookmarks}
+      onAchievements={handleAchievements}
     />
   );
 }

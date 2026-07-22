@@ -542,3 +542,76 @@ No critical bugs found — all 7 phases returned HTTP 200 with zero console erro
 4. **Add a "Completed Lessons" view** — similar to Bookmarks, but showing all completed lessons for review.
 5. **Add progress milestones/achievements** — e.g. "First lesson complete!", "Phase 1 mastered!", to gamify the experience.
 6. **Add estimated time per phase in the sidebar** — next to each phase's completion count.
+
+---
+Task ID: 13 (Cron Review Round 6)
+Agent: Main (orchestrator) — webDevReview cron trigger
+Task: Assess project status, perform QA via agent-browser, improve styling, add new features.
+
+## Current Project Status Assessment
+The platform was stable from Round 5 with all features working. QA via agent-browser + VLM analysis identified these improvement opportunities:
+1. No achievements/gamification system (#5 recommendation from Round 5)
+2. Stats container on overview hero lacked glassmorphism depth
+3. Body text line-height was tight (1.5 → 1.75 recommended)
+4. List spacing was cramped (space-y-2 → space-y-3 recommended)
+5. No achievements view page
+
+No critical bugs found — all 7 phases + all routes returned HTTP 200 with zero console errors.
+
+## Completed Modifications
+
+### New Components Created (4 files)
+1. **`src/components/layout/AchievementWatcher.tsx`** — achievements system with:
+   - 8 achievement definitions (First Step, Getting Started, Quarter Master, Halfway There, Phase Master, Multi-Phase Master, Completionist, Collector)
+   - Each has an icon, title, description, accent color, and a `check` function
+   - `AchievementWatcher` component: invisible watcher that fires celebratory toasts when achievements unlock. Persists unlocked IDs to localStorage under `ros2-mastery-achievements`. Lazy-initializes from localStorage to avoid setState-in-effect lint rule.
+   - `useAchievements()` hook: returns all achievements with `unlocked` status
+   - `useUnlockedAchievementCount()` hook: returns count for badges
+
+2. **`src/components/layout/AchievementsView.tsx`** — full-screen page showing all 8 achievements in a 2-column grid. Unlocked achievements show in full color with "Unlocked" badge; locked ones are greyed with a Lock icon. Header has Trophy icon, count, and overall progress bar (amber gradient).
+
+3. **`src/components/layout/AchievementsWrapper.tsx`** — client router wrapper
+
+4. **`src/components/layout/AchievementsButton.tsx`** — reusable navbar icon (Trophy) with amber badge showing unlocked count. Hidden when 0 or before hydration.
+
+### Enhanced Existing Components
+5. **`page.tsx`** — added `?view=achievements` routing. Four-way route: `?view=bookmarks`, `?view=achievements`, `?m=moduleId`, (nothing) → overview.
+
+6. **`Navbar.tsx`** — added AchievementsButton (with amber badge) between BookmarksButton and ThemeToggle. Navigates to `/?view=achievements`.
+
+7. **`AppShell.tsx`** — added `<AchievementWatcher />` as an invisible overlay component so achievements fire on lesson pages.
+
+8. **`CourseOverview.tsx`**:
+   - Added optional `onAchievements` prop
+   - Added AchievementsButton to floating top-right controls
+   - Added `<AchievementWatcher />` so achievements fire on the overview
+   - **Stats container glassmorphism**: changed from `flex flex-wrap` to `inline-flex flex-wrap rounded-2xl border border-white/[0.06] bg-white/[0.02] px-6 py-4 backdrop-blur-md` — a subtle frosted-glass effect
+
+9. **`OverviewWrapper.tsx`** — passes `onAchievements` handler
+
+10. **`globals.css`** — typography improvements:
+    - Paragraph line-height: `leading-7` → `leading-[1.75]` for better readability
+    - List spacing: `space-y-2` → `space-y-3` for more breathing room
+    - Ordered list spacing: same improvement
+
+## Verification Results
+- **All 7 phases + overview + bookmarks + achievements**: HTTP 200, zero console errors
+- **Achievements page**: confirmed renders with "Achievements" h1, 8 achievement cards (17 rounded elements total including badges)
+- **Achievement unlocking**: confirmed "First Step" toast fires when marking first lesson complete via `M` key
+- **Achievements badge**: confirmed present in navbar (Trophy icon with amber badge)
+- **Glassmorphism stats**: confirmed `backdrop-blur-md` + `rounded-2xl` + `border` classes on stats container
+- **Navbar features**: BookmarksButton, AchievementsButton, RemainingTime, ThemeToggle, SettingsDialog all present
+- **Lint**: 0 errors, 0 warnings
+
+## Unresolved Issues / Risks
+- **None critical** — all features working as designed
+- **Minor**: The AchievementWatcher fires toasts with a 600ms delay between each to avoid overwhelming the user. If many achievements unlock simultaneously (e.g. on import), they queue up nicely.
+- **Minor**: Achievement toasts use JSX in the `title` prop which is cast to `unknown as string` — this is a workaround for the toast hook's typing. Works correctly at runtime.
+
+## Priority Recommendations for Next Phase
+1. **Expand Phase 2-7 content to full lesson depth** — Phase 1 is comprehensive; Phases 2-7 are still overviews. This remains the highest-value content task.
+2. **Add a "Completed Lessons" view** — similar to Bookmarks, but showing all completed lessons for review.
+3. **Add connecting timeline line through phase cards** on the overview — a horizontal line behind the phase numbers to visualize the journey.
+4. **Add full-text search** — command palette searches module titles only.
+5. **Add print/export to PDF** — for offline study.
+6. **Add estimated time per phase in the sidebar** — next to each phase's completion count.
