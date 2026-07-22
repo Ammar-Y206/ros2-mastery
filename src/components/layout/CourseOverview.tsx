@@ -27,6 +27,8 @@ import { BookmarksButton } from "@/components/layout/BookmarksButton";
 import { AchievementsButton } from "@/components/layout/AchievementsButton";
 import { CompletedButton } from "@/components/layout/CompletedButton";
 import { AchievementWatcher } from "@/components/layout/AchievementWatcher";
+import { StreakDisplay } from "@/components/layout/StreakDisplay";
+import { WeeklyProgressChart } from "@/components/layout/WeeklyProgressChart";
 
 interface CourseOverviewProps {
   onNavigate: (moduleId: string) => void;
@@ -176,7 +178,7 @@ export function CourseOverview({ onNavigate, onDismiss, onBookmarks, onAchieveme
                 <Button
                   size="lg"
                   onClick={() => onNavigate(continueTarget.module.id)}
-                  className="gap-2 bg-gradient-to-r from-cyan-500 to-teal-500 text-white hover:from-cyan-600 hover:to-teal-600"
+                  className="gap-2 bg-gradient-to-r from-cyan-500 to-teal-500 text-white hover:from-cyan-600 hover:to-teal-600 hover:shadow-lg hover:shadow-cyan-500/40 hover:-translate-y-0.5 transition-all"
                 >
                   <Play className="h-4 w-4 fill-current" />
                   {totalCompleted > 0 ? "Continue Learning" : "Start Phase 1"}
@@ -186,7 +188,7 @@ export function CourseOverview({ onNavigate, onDismiss, onBookmarks, onAchieveme
                 <Button
                   size="lg"
                   onClick={() => onNavigate("phase-1/middleware")}
-                  className="gap-2 bg-gradient-to-r from-cyan-500 to-teal-500 text-white hover:from-cyan-600 hover:to-teal-600"
+                  className="gap-2 bg-gradient-to-r from-cyan-500 to-teal-500 text-white hover:from-cyan-600 hover:to-teal-600 hover:shadow-lg hover:shadow-cyan-500/40 hover:-translate-y-0.5 transition-all"
                 >
                   <Play className="h-4 w-4 fill-current" />
                   Start Phase 1
@@ -203,23 +205,26 @@ export function CourseOverview({ onNavigate, onDismiss, onBookmarks, onAchieveme
               </Button>
             </div>
 
-            {/* Overall progress bar */}
+            {/* Overall progress bar + streak */}
             {hydrated && totalCompleted > 0 && (
-              <div className="w-full max-w-md pt-4">
-                <div className="mb-1.5 flex items-center justify-between text-xs">
-                  <span className="font-medium text-muted-foreground">
-                    Overall Progress
-                  </span>
-                  <span className="font-mono font-semibold text-cyan-400 tabular-nums">
-                    {overallPct}%
-                  </span>
+              <div className="flex flex-wrap items-end gap-6 pt-4">
+                <div className="w-full max-w-md">
+                  <div className="mb-1.5 flex items-center justify-between text-xs">
+                    <span className="font-medium text-muted-foreground">
+                      Overall Progress
+                    </span>
+                    <span className="font-mono font-semibold text-cyan-400 tabular-nums">
+                      {overallPct}%
+                    </span>
+                  </div>
+                  <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
+                    <div
+                      className="h-full rounded-full bg-gradient-to-r from-cyan-400 to-teal-400 transition-all duration-700 ease-out"
+                      style={{ width: `${overallPct}%` }}
+                    />
+                  </div>
                 </div>
-                <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
-                  <div
-                    className="h-full rounded-full bg-gradient-to-r from-cyan-400 to-teal-400 transition-all duration-700 ease-out"
-                    style={{ width: `${overallPct}%` }}
-                  />
-                </div>
+                <StreakDisplay />
               </div>
             )}
           </div>
@@ -228,6 +233,11 @@ export function CourseOverview({ onNavigate, onDismiss, onBookmarks, onAchieveme
 
       {/* Phase cards grid */}
       <div className="mx-auto max-w-6xl px-5 py-12 lg:px-10 lg:py-16">
+        {/* Weekly progress chart — only show when there's activity */}
+        <div className="mb-8 max-w-sm">
+          <WeeklyProgressChart />
+        </div>
+
         <div className="mb-8 flex items-center gap-3">
           <h2 className="text-2xl font-bold tracking-tight text-foreground">
             The 7-Phase Roadmap

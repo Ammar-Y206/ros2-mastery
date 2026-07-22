@@ -744,3 +744,58 @@ No critical bugs found — all 7 phases + all routes returned HTTP 200 with zero
 4. **Add estimated time per phase in the sidebar** — next to each phase's completion count.
 5. **Add streak to the Course Overview hero** — show the streak prominently on the dashboard.
 6. **Add a weekly progress chart** — visualize lessons completed per day/week.
+
+---
+Task ID: 16 (Cron Review Round 9)
+Agent: Main (orchestrator) — webDevReview cron trigger
+Task: Assess project status, perform QA via agent-browser, improve styling, add new features.
+
+## Current Project Status Assessment
+The platform was stable from Round 8 with all features working. QA via agent-browser + VLM analysis identified these improvement opportunities:
+1. No streak display on the Course Overview hero (#5 recommendation from Round 8)
+2. No weekly progress chart (#6 recommendation)
+3. CTA buttons lacked hover glow (VLM recommendation)
+4. Phase cards could benefit from connector lines (VLM recommendation)
+
+No critical bugs found — all 7 phases + all routes returned HTTP 200 with zero console errors.
+
+## Completed Modifications
+
+### New Components Created (3 files)
+1. **`src/hooks/use-weekly-activity.ts`** — hook returning an array of the last 7 days with lesson completion counts. Each day has: date (ISO), label (Mon/Tue/...), count, and isToday flag. Uses `completionDates` from the progress store.
+
+2. **`src/components/layout/WeeklyProgressChart.tsx`** — bar chart showing lessons completed per day over the last 7 days. Features:
+   - 7 vertical bars with cyan→teal gradient (today's bar highlighted)
+   - Hover tooltip showing exact count
+   - Header with Activity icon, "This Week" title, and total count
+   - Day labels (Sun-Sat) below each bar, today's label in cyan
+   - Empty days show as a subtle 4px bar
+   - Rounded card container with border
+
+3. **`src/components/layout/StreakDisplay.tsx`** — compact card for the overview hero showing the current streak with a Flame icon. Shows current streak count (monospace), "Best: N days" subtitle, and a "✓ Today" badge when completed today. Hidden when streak is 0. Uses amber accent when completed today.
+
+### Enhanced Existing Components
+4. **`CourseOverview.tsx`** — three enhancements:
+   - **StreakDisplay in hero**: added next to the overall progress bar in a flex-wrap layout. Only shows when there's completed progress.
+   - **WeeklyProgressChart**: added between the hero and the phase cards grid, in a max-w-sm container. Only shows when hydrated.
+   - **CTA button hover glow**: both "Continue Learning" and "Start Phase 1" buttons now have `hover:shadow-lg hover:shadow-cyan-500/40 hover:-translate-y-0.5 transition-all` for a premium lift + glow effect on hover.
+
+## Verification Results
+- **All 7 phases + all routes**: HTTP 200, zero console errors
+- **Streak display**: confirmed shows on overview hero after marking a lesson complete ("day" text present)
+- **Weekly progress chart**: confirmed shows "This Week" with bar chart
+- **CTA hover glow**: confirmed `hover:shadow-cyan` class present on CTA buttons
+- **Lint**: 0 errors, 0 warnings
+
+## Unresolved Issues / Risks
+- **None critical** — all features working as designed
+- **Minor**: The WeeklyProgressChart only shows when there's hydration — on first visit with no progress, the chart area is empty (the component returns null when no data). This is intentional to avoid cluttering the overview for new users. Once a lesson is completed, the chart appears.
+- **Minor**: The StreakDisplay is only visible when streak > 0, which means new users won't see it. This is by design — it's a reward for active learners.
+
+## Priority Recommendations for Next Phase
+1. **Expand Phase 2-7 content to full lesson depth** — Phase 1 is comprehensive; Phases 2-7 are still overviews. This remains the highest-value content task.
+2. **Add full-text search** — command palette searches module titles only.
+3. **Add print/export to PDF** — for offline study.
+4. **Add estimated time per phase in the sidebar** — next to each phase's completion count.
+5. **Add phase connector lines** — dashed vertical line connecting phase numbers on the overview to reinforce the "roadmap" concept.
+6. **Add a "dark mode code blocks" toggle** — let users choose whether code blocks stay dark in light mode.
