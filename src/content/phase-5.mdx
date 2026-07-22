@@ -1,0 +1,176 @@
+# Phase 5: Advanced Node Architecture
+
+> Optimize the robot for extreme performance. Move beyond standard nodes to build a high-speed, deterministic system that can handle 4K vision and high-frequency LiDAR without breaking a sweat.
+
+**What you will master:**
+
+- Using **Composition** and **Zero-Copy** communication to eliminate CPU bottlenecks.
+- Enforcing a **Deterministic Boot Sequence** using Lifecycle Nodes for safety.
+- Orchestrating complex shared-memory containers for vision-heavy perception tasks.
+
+---
+
+## Composition — Component Nodes
+### The "Why" & The "How" (IPC & Zero-Copy)
+
+Every standalone ROS 2 node is a **separate OS process**. When a Publisher in process A sends a 4K image (8MB) to a Subscriber in process B, that data crosses the process boundary via DDS — which means serialization, copying, and network stack overhead. At 30Hz that's 240MB/s of memcpy. Your CPU melts.
+
+**Composition** fixes this: multiple nodes run as **components inside a single process**. When two components in the same process communicate, ROS 2 uses **Zero-Copy (Type-Adaptive) transport** — the message is passed as a shared pointer, with **zero serialization and zero copying**.
+
+<Callout type="how" title="The How — When to Compose">
+Compose nodes that exchange **large messages at high frequency** (camera → perception, LiDAR → pointcloud processor). Keep low-frequency nodes (parameter server, diagnostics) as standalone processes. Over-composing couples failure domains — a crash in one component kills the whole container.
+</Callout>
+
+### Implementation (C++ Component)
+
+A component is a standard node that registers itself with the component loader macro:
+
+<CodeBlock
+  title="src/vision_component.cpp"
+  cpp={`#include "rclcpp/rclcpp.hpp"
+#include "sensor_msgs/msg/image.hpp"
+#include <memory>
+
+class VisionComponent : public rclcpp::Node {
+public:
+  VisionComponent() : Node("vision_processor") {
+    // Use a Compatible QoS for zero-copy (keep_last, depth 10)
+    rclcpp::QoS qos(10);
+    qos.best_effort();
+    qos.durability_volatile();
+
+    sub_ = this->create_subscription<sensor_msgs::msg::Image>(
+      "/camera/image_raw", qos,
+      std::bind(&VisionComponent::on_image, this, std::placeholders::_1));
+    RCLCPP_INFO(this->get_logger(), "Vision component ready");
+  }
+private:
+  void on_image(const sensor_msgs::msg::Image::SharedPtr msg) {
+    // In-process, this is a zero-copy shared_ptr
+    // process the frame...
+  }
+  rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr sub_;
+};
+
+// Register the component — this is what makes it loadable
+#include "rclcpp_components/register_node_macro.hpp"
+RCLCPP_COMPONENTS_REGISTER_NODE(VisionComponent)`}
+/>
+
+### Execution — The Component Container
+
+Components are loaded into a **container process** at runtime. ROS 2 ships a generic container:
+
+<TerminalBlock title="bash">
+{`# Start a generic component container
+ros2 run rclcpp_components component_container
+
+# In another terminal, load your component into it by package+class
+ros2 component load /ComponentManager my_vision_pkg my_vision_pkg::VisionComponent
+
+# List loaded components
+ros2 component list`}
+</TerminalBlock>
+
+<Callout type="pitfall" title="CRITICAL Pitfall — Zero-Copy Requires Loaned Messages">
+Zero-copy only works when the publisher uses **loaned messages** (`borrow_loaned_message`) and both sides are in the same container with the same middleware configured for shared memory. If you publish a stack-allocated message, it gets copied — composition alone is not enough.
+</Callout>
+
+---
+
+## Managed Nodes — Lifecycle Nodes
+### The "Why" & The "How" (Deterministic Boot Sequencing)
+
+A naive robot boots nodes in a race condition: the planner might start before the TF tree is ready, the controller before the encoders are calibrated. The robot twitches, errors spew, and you can't reproduce the failure.
+
+**Lifecycle Nodes** solve this with a **state machine**. A lifecycle node cannot do work until an orchestrator explicitly transitions it through:
+
+```
+unconfigured ──configure──▶ inactive ──activate──▶ active
+     ▲                          │                       │
+     │                          ◀──cleanup              │
+     │                                                  │
+     └──────────────── deactivate ◀─────────────────────┘
+                                      
+                                 active ──shutdown──▶ finalized
+```
+
+<Callout type="why" title="The Why — Deterministic Boot">
+With lifecycle nodes, your master launch file (or Nav2's lifecycle manager) waits until the hardware driver reaches `active` before activating the planner, then the controller. No more race conditions. And on shutdown, you can cleanly stop the controller *before* the sensors — preventing a "phantom command" from being sent to a motor after the planner died.
+</Callout>
+
+### Implementation — The State Machine
+
+<CodeBlock
+  title="src/managed_driver.cpp"
+  cpp={`#include "rclcpp/rclcpp.hpp"
+#include "rclcpp_lifecycle/lifecycle_node.hpp"
+
+class ManagedDriver : public rclcpp_lifecycle::LifecycleNode {
+public:
+  ManagedDriver() : rclcpp_lifecycle::LifecycleNode("managed_driver") {}
+
+  // 1. configure: allocate resources, declare params — but don't start work
+  rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface::CallbackReturn
+  on_configure(const rclcpp_lifecycle::State &) {
+    // Open the hardware port, declare parameters
+    RCLCPP_INFO(get_logger(), "Configured — hardware port opened");
+    return CallbackReturn::SUCCESS;
+  }
+
+  // 2. activate: start publishing / actuating
+  rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface::CallbackReturn
+  on_activate(const rclcpp_lifecycle::State &) {
+    // Activate publishers, start timers
+    RCLCPP_INFO(get_logger(), "Activated — driving now");
+    return CallbackReturn::SUCCESS;
+  }
+
+  // 3. deactivate: stop actuating, but keep resources
+  rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface::CallbackReturn
+  on_deactivate(const rclcpp_lifecycle::State &) {
+    RCLCPP_INFO(get_logger(), "Deactivated — holding still");
+    return CallbackReturn::SUCCESS;
+  }
+
+  // 4. cleanup: release resources
+  rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface::CallbackReturn
+  on_cleanup(const rclcpp_lifecycle::State &) {
+    RCLCPP_INFO(get_logger(), "Cleanup — port closed");
+    return CallbackReturn::SUCCESS;
+  }
+
+  // 5. shutdown
+  rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface::CallbackReturn
+  on_shutdown(const rclcpp_lifecycle::State &) {
+    RCLCPP_INFO(get_logger(), "Shutdown");
+    return CallbackReturn::SUCCESS;
+  }
+};
+
+int main(int argc, char ** argv) {
+  rclcpp::init(argc, argv);
+  rclcpp::spin(std::make_shared<ManagedDriver>()->get_node_base_interface());
+  rclcpp::shutdown();
+}`}
+/>
+
+<TerminalBlock title="bash">
+{`# Drive lifecycle transitions from the CLI
+ros2 lifecycle list /managed_driver
+ros2 lifecycle set /managed_driver configure
+ros2 lifecycle set /managed_driver activate
+ros2 lifecycle get /managed_driver`}
+</TerminalBlock>
+
+<Callout type="best-practice" title="Best Practice — Pair with a Lifecycle Manager">
+Don't manually call `lifecycle set` on 12 nodes. Use **Nav2's `lifecycle_manager`** (or write your own) — it brings up a configured list of nodes in order, with retry logic, and brings them down in reverse order on shutdown. One command, deterministic boot.
+</Callout>
+
+<Callout type="pitfall" title="CRITICAL Pitfall — Forgetting to Deactivate Before Cleanup">
+If you jump straight from `active` → `cleanup`, the node may still have a timer trying to publish to a destroyed publisher. Always transition `active → deactivate → cleanup → shutdown`. The lifecycle manager enforces this; manual transitions do not.
+</Callout>
+
+---
+
+> **Coming next:** Python lifecycle nodes, `CallbackGroup` + `Reentrant` executor patterns for concurrent service handling, and benchmarking composition vs. standalone throughput.

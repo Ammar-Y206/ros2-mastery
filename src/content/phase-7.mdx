@@ -1,0 +1,227 @@
+# Phase 7: The Autonomous Stack
+
+> Awaken the master autonomy. **Fuse sensors, map the environment, and plan the optimal path** to navigate autonomously while avoiding obstacles.
+
+**What you will master:**
+
+- Implementing the **Extended Kalman Filter (EKF)** to find the "Filtered Truth."
+- Building high-resolution maps using **SLAM** while localizing at speed.
+- Orchestrating the **Nav2 Framework** to compute paths and avoid obstacles.
+
+---
+
+## Sensor Fusion & State Estimation (EKF)
+### The "Why" & The "How" (The Kalman Filter)
+
+No single sensor is perfect. Wheel encoders drift on slippery floors. IMUs accumulate gyro bias. GPS bounces off buildings. The **Extended Kalman Filter** fuses them: it predicts the next state from the IMU, then corrects the drift using the encoders, producing a single **filtered truth** that is better than any individual source.
+
+The `robot_localization` package provides a production-ready EKF node. You configure it with a YAML specifying which sensors feed which state dimensions.
+
+### The `robot_localization` Configuration
+
+<CodeBlock
+  title="config/ekf.yaml"
+  language="yaml"
+>{`ekf_filter_node:
+  ros__parameters:
+    frequency: 30.0
+    two_d_mode: true
+    publish_tf: true
+
+    # Map frame configuration
+    map_frame: map
+    odom_frame: odom
+    base_link_frame: base_link
+    world_frame: odom
+
+    # Sensor 1: wheel odometry (x, y, yaw)
+    odom0: /wheel/odometry
+    odom0_config: [true, true, false,
+                   false, false, true,
+                   false, false, false,
+                   false, false, false,
+                   false, false, false]
+
+    # Sensor 2: IMU (roll, pitch, yaw rate)
+    imu0: /imu/data
+    imu0_config: [false, false, false,
+                  true, true, false,
+                  false, false, true,
+                  false, false, false,
+                  false, false, false]
+
+    # Covariance tuning — CRITICAL
+    odom0_differential: false
+    imu0_differential: true`}
+</CodeBlock>
+
+### Implementation — The Launch
+
+<TerminalBlock title="bash">
+{`# Launch the EKF node with the config
+ros2 launch robot_localization ekf.launch.py params_file:=config/ekf.yaml
+
+# Inspect the fused output
+ros2 topic echo /odometry/filtered
+ros2 run tf2_ros tf2_echo odom base_link`}
+</TerminalBlock>
+
+<Callout type="pitfall" title="CRITICAL Pitfall — Inflated Covariances">
+If you set sensor covariances too low (over-confident), the EKF trusts a noisy sensor and the estimate **jumps**. If too high, it ignores good data and **drifts**. Always start with the manufacturer's datasheet values and tune empirically — plot `/odometry/filtered` vs raw `/wheel/odometry` and adjust until smooth AND responsive.
+</Callout>
+
+<Callout type="best-practice" title="Best Practice — Differential Mode for IMU">
+Set `imu0_differential: true`. An IMU reports absolute orientation, but its bias drifts over time. Differential mode converts it to a *rate* measurement, so the EKF integrates it fresh — preventing accumulated bias from corrupting the global estimate.
+</Callout>
+
+---
+
+## Perception & Mapping (SLAM)
+### The "Why" & The "How" (SLAM vs. EKF)
+
+EKF fuses *motion* sensors. **SLAM** (Simultaneous Localization And Mapping) does something fundamentally harder: it builds a map of an **unknown environment** while simultaneously localizing within it. It uses scan-matching — comparing consecutive LiDAR scans to estimate how the robot moved, then stitches all scans into an occupancy grid.
+
+The `slam_toolbox` package is the ROS 2 standard for 2D SLAM.
+
+### The `slam_toolbox` Configuration
+
+<CodeBlock
+  title="config/slam.yaml"
+  language="yaml"
+>{`slam_toolbox:
+  ros__parameters:
+    solver_plugin: solver_plugins::CeresSolver
+    mode: mapping          # 'mapping' or 'localization'
+
+    # Scan matching
+    minimum_time_interval: 0.5
+    map_update_interval: 1.0
+    resolution: 0.05       # 5cm per grid cell
+
+    # Loop closure
+    enable_loop_closing: true
+    loop_closure_maximum_search_radius: 3.0
+    loop_match_minimum_chain_size: 10
+
+    # Sensor config
+    scan_topic: /scan
+    max_laser_range: 20.0`}
+</CodeBlock>
+
+### Implementation — Launch & RViz
+
+<TerminalBlock title="bash">
+{`# Online sync SLAM
+ros2 launch slam_toolbox online_sync_launch.py
+
+# Save the built map
+ros2 service call /slam_toolbox/save_map slam_toolbox/srv/SaveMap \\
+  "name: 'warehouse_floor'"
+
+# Later, localize in the saved map
+ros2 launch slam_toolbox localization_launch.py map:='warehouse_floor.yaml'`}
+</TerminalBlock>
+
+<Callout type="pitfall" title="CRITICAL Pitfall — Odometry Must Be Good Before SLAM">
+SLAM is only as good as the prediction it gets from `/odom`. If your wheel odometry has 10% slip, scan-matching can't recover and the map looks like spaghetti. **Always tune EKF first (Phase 7.1), THEN run SLAM.** A bad odom → a bad map → a robot that can't localize.
+</Callout>
+
+---
+
+## Nav2 — The Navigation Framework
+### The "Why" & The "How" (The Modular Navigator)
+
+Nav2 is the **production navigation stack**. It's not one algorithm — it's a modular framework where you swap planners (how to find a path), controllers (how to follow it), behaviors (what to do when stuck), and costmaps (how to represent obstacles). All orchestrated by a behavior tree.
+
+### Costmap Management (Global vs. Local)
+
+Nav2 maintains **two costmaps**:
+
+| Costmap | Purpose | Update Rate | Layer Source |
+|---------|---------|-------------|--------------|
+| **Global** | Path planning over the full map | Slow (1-5Hz) | Static map + recorded obstacles |
+| **Local** | Reactive obstacle avoidance | Fast (5-20Hz) | Live LiDAR + camera detections |
+
+<Callout type="how" title="The How — Why Two Costmaps?">
+The global costmap uses the *static map* (from SLAM) so the planner can find a route around a known wall. The local costmap uses *live sensor data* so the robot can dodge a person who just walked in front of it. If you used only the local, the planner couldn't see beyond sensor range. If only the global, you'd crash into unmapped obstacles.
+</Callout>
+
+<CodeBlock
+  title="config/nav2.yaml"
+  language="yaml"
+>{`local_costmap:
+  local_costmap:
+    ros__parameters:
+      update_frequency: 5.0
+      publish_frequency: 2.0
+      global_frame: odom
+      robot_base_frame: base_link
+      rolling_window: true
+      width: 3
+      height: 3
+      resolution: 0.05
+      plugins: ["obstacle_layer", "inflation_layer"]
+      obstacle_layer:
+        plugin: "nav2_costmap_2d::ObstacleLayer"
+        enabled: True
+        observation_sources: scan
+        scan:
+          topic: /scan
+          max_obstacle_height: 2.0
+          clearing: True
+          marking: True
+
+global_costmap:
+  global_costmap:
+    ros__parameters:
+      update_frequency: 1.0
+      publish_frequency: 1.0
+      global_frame: map
+      robot_base_frame: base_link
+      resolution: 0.05
+      plugins: ["static_layer", "obstacle_layer", "inflation_layer"]
+      static_layer:
+        plugin: "nav2_costmap_2d::StaticLayer"
+        map_subscribe_topic: /map`}
+</CodeBlock>
+
+<Callout type="pitfall" title="CRITICAL Pitfall — Inflation Radius Too Small">
+The `inflation_layer` adds a safety buffer around obstacles. If your `inflation_radius` is smaller than the robot's radius, the planner will generate paths that scrape walls. **Always set `inflation_radius >= robot_radius + 0.1m`** for any mobile robot. A common failure mode: robot gets stuck oscillating in a narrow corridor because the inflation makes every cell impassable.
+</Callout>
+
+<Callout type="best-practice" title="Best Practice — Tune the Controller Before the Planner">
+If the robot drives poorly (overshooting turns, oscillating), it's almost always the **controller**, not the planner. Start by tuning the DWB / RPP controller's `max_vel` and `critial_xy_vel`, confirm smooth tracking on straight lines, THEN tune the planner's path simplification. Inverting this order wastes hours.
+</Callout>
+
+<TerminalBlock title="bash">
+{`# Launch the full Nav2 stack
+ros2 launch nav2_bringup navigation_launch.py params_file:=config/nav2.yaml
+
+# Send a navigation goal from the CLI / RViz2
+ros2 action send_goal /navigate_to_pose nav2_msgs/action/NavigateToPose \\
+  "{pose: {header: {frame_id: map}, pose: {position: {x: 2.0, y: 1.0, z: 0.0}}}}"}`}
+</TerminalBlock>
+
+---
+
+## The 7-Phase Journey — Complete
+
+You've now built the complete autonomous robotics stack, layer by layer:
+
+1. **Phase 1** — Decomposed the monolith into a nervous system of Nodes.
+2. **Phase 2** — Mastered Topics, Services, and Actions to wire them together.
+3. **Phase 3** — Added Parameters, Launch, and Rosbag2 for orchestration and debugging.
+4. **Phase 4** — Built a geometric understanding of the world with TF2.
+5. **Phase 5** — Scaled to production performance with Composition and Lifecycle Nodes.
+6. **Phase 6** — Forged the digital twin with URDF, ros2_control, and Gazebo.
+7. **Phase 7** — Awakened autonomy with EKF sensor fusion, SLAM mapping, and Nav2 navigation.
+
+<Callout type="best-practice" title="The Road Ahead — Keep Building">
+This roadmap is a foundation, not a ceiling. The next frontiers are:
+- **Behavior Trees** for complex mission orchestration (Nav2 uses BTs internally).
+- **3D perception** — PointCloud processing, 3D SLAM (RTAB-Map), object detection pipelines.
+- **Multi-robot** — DDS Discovery Server, namespacing, fleet coordination.
+- **Real-time** — PREEMPT_RT kernel, DDS QoS for deterministic latency.
+
+Pick a robot, build something ambitious, and break it in interesting ways. That's how mastery happens.
+</Callout>

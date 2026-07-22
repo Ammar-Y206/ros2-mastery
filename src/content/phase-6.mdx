@@ -1,0 +1,181 @@
+# Phase 6: Hardware & Simulation Integration
+
+> Bridge the gap between code and reality. Create a **'Digital Twin'** of the robot, allowing you to test dangerous maneuvers in Gazebo before ever touching the physical hardware.
+
+**What you will master:**
+
+- Describing the robot's physics and geometry using modular **URDF/Xacro** files.
+- Implementing **ros2_control** to handle the 'Muscles' (steering and motor torque).
+- Mastering the **Gazebo Physics Bridge** to simulate real-world sensor feeds.
+
+---
+
+## Robot Description — URDF/Xacro
+### The "Why" & The "How" (URDF vs. Xacro)
+
+A robot needs a **machine-readable body**: link masses, joint limits, sensor mounts, collision geometry. **URDF** (Unified Robot Description Format) is the XML format ROS 2 uses. **Xacro** is a macro layer on top — it lets you parameterize, reuse, and compute (e.g. "wheel radius = 0.15, so circumference = 2π·r").
+
+<Callout type="how" title="The How — URDF vs. Xacro">
+Write `.urdf.xacro` files, never raw `.urdf`. Xacro gives you:
+- **Parameters** (`<xacro:property name="wheel_radius" value="0.15"/>`)
+- **Macros** (define a wheel once, instantiate 4 times)
+- **Math** (`${2 * pi * wheel_radius}`)
+- **Conditionals** (`<xacro:if value="$(arg use_sim)">`)
+The build step (`xacro` CLI) expands it to plain URDF for the consumers.
+</Callout>
+
+### Implementation — The XML Structure
+
+<CodeBlock
+  title="urdf/robot.urdf.xacro"
+  language="xml"
+>{`<?xml version="1.0"?>
+<robot name="mobile_robot" xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <!-- Reusable properties -->
+  <xacro:property name="wheel_radius" value="0.15"/>
+  <xacro:property name="wheel_width"  value="0.08"/>
+  <xacro:property name="chassis_len"  value="1.2"/>
+
+  <!-- Macro: a single wheel, instantiated 4 times -->
+  <xacro:macro name="wheel" params="prefix x y">
+    <link name="\${prefix}_wheel">
+      <visual>
+        <geometry>
+          <cylinder radius="\${wheel_radius}" length="\${wheel_width}"/>
+        </geometry>
+      </visual>
+      <collision>
+        <geometry>
+          <cylinder radius="\${wheel_radius}" length="\${wheel_width}"/>
+        </geometry>
+      </collision>
+      <inertial>
+        <mass value="2.0"/>
+        <inertia ixx="0.01" iyy="0.01" izz="0.01" ixy="0" ixz="0" iyz="0"/>
+      </inertial>
+    </link>
+    <joint name="\${prefix}_wheel_joint" type="continuous">
+      <parent link="base_link"/>
+      <child link="\${prefix}_wheel"/>
+      <origin xyz="\${x} \${y} 0" rpy="1.5708 0 0"/>
+    </joint>
+  </xacro:macro>
+
+  <!-- Chassis -->
+  <link name="base_link">
+    <visual>
+      <geometry><box size="\${chassis_len} 0.6 0.2"/></geometry>
+    </visual>
+    <inertial>
+      <mass value="20.0"/>
+      <inertia ixx="1.0" iyy="1.0" izz="1.0" ixy="0" ixz="0" iyz="0"/>
+    </inertial>
+  </link>
+
+  <!-- Instantiate 4 wheels -->
+  <xacro:wheel prefix="fl" x="\${chassis_len/2}"  y="0.3"/>
+  <xacro:wheel prefix="fr" x="\${chassis_len/2}"  y="-0.3"/>
+  <xacro:wheel prefix="rl" x="-\${chassis_len/2}" y="0.3"/>
+  <xacro:wheel prefix="rr" x="-\${chassis_len/2}" y="-0.3"/>
+
+</robot>`}</CodeBlock>
+
+### Visualizing the Result
+
+<TerminalBlock title="bash">
+{`# Expand xacro to plain URDF and check for errors
+ros2 run xacro xacro urdf/robot.urdf.xacro > /tmp/robot.urdf
+
+# Validate the URDF (catches broken joints, missing inertials)
+check_urdf /tmp/robot.urdf
+
+# Visualize the robot in RViz2
+ros2 launch urdf_tutorial display.launch.py model:=urdf/robot.urdf.xacro`}
+</TerminalBlock>
+
+<Callout type="pitfall" title="CRITICAL Pitfall — Missing Inertial Properties">
+If any link lacks an `<inertial>` block, the Gazebo physics engine treats it as **zero mass** — the robot either collapses into a singularity or floats away. Every link that moves or carries a sensor MUST have mass and inertia declared.
+</Callout>
+
+---
+
+## ros2_control — The Muscle System
+### The "Why" & The "How" (The Ecosystem)
+
+`ros2_control` is the standardized interface between your URDF joints and the actual hardware (or simulation). It provides:
+
+- **Hardware Interface** — reads encoder state, writes motor commands.
+- **Controller Manager** — loads and switches controllers (diff_drive, joint_trajectory, etc.) at runtime.
+- **Command Interfaces** — position, velocity, effort.
+
+This decouples your high-level planner from the low-level motor driver. Swap a real motor for a simulated one by changing ONE config line.
+
+### The URDF Integration
+
+Add a `<ros2_control>` block to your URDF declaring the command/state interfaces:
+
+<CodeBlock
+  title="urdf/ros2_control.xacro"
+  language="xml"
+>{`<ros2_control name="RealRobotHardware" type="system">
+  <hardware>
+    <plugin>diff_drive/DiffDriveSystem</plugin>
+    <param name="left_wheel_name">fl_wheel_joint</param>
+    <param name="right_wheel_name">fr_wheel_joint</param>
+    <param name="loop_rate">50</param>
+  </hardware>
+  <joint name="fl_wheel_joint">
+    <command_interface name="velocity"/>
+    <state_interface name="position"/>
+    <state_interface name="velocity"/>
+  </joint>
+  <joint name="fr_wheel_joint">
+    <command_interface name="velocity"/>
+    <state_interface name="position"/>
+    <state_interface name="velocity"/>
+  </joint>
+</ros2_control>`}</CodeBlock>
+
+### The YAML Configuration
+
+<CodeBlock
+  title="config/controllers.yaml"
+  language="yaml"
+>{`controller_manager:
+  ros__parameters:
+    update_rate: 50
+
+    diff_drive_controller:
+      type: diff_drive_controller/DiffDriveController
+
+    joint_state_broadcaster:
+      type: joint_state_broadcaster/JointStateBroadcaster
+
+diff_drive_controller:
+  ros__parameters:
+    left_wheel_names: ["fl_wheel_joint", "rl_wheel_joint"]
+    right_wheel_names: ["fr_wheel_joint", "rr_wheel_joint"]
+    wheel_separation: 0.6
+    wheel_radius: 0.15
+    publish_rate: 50.0`}
+</CodeBlock>
+
+<TerminalBlock title="bash">
+{`# Spawn controllers
+ros2 control load_controller diff_drive_controller --set-state active
+ros2 control list_controllers
+ros2 control list_hardware_interfaces`}
+</TerminalBlock>
+
+<Callout type="pitfall" title="CRITICAL Pitfall — Mismatched Wheel Separation">
+If `wheel_separation` in the controller YAML differs from the actual URDF by even 2cm, the robot will systematically **drift to one side** when commanded to drive straight. Always derive `wheel_separation` and `wheel_radius` from the SAME xacro properties used in the URDF — never hardcode them twice.
+</Callout>
+
+<Callout type="best-practice" title="Best Practice — Sim vs. Real as a Plugin Swap">
+Structure your hardware interface so that the Gazebo plugin (`gz_ros2_control`) and the real hardware plugin have **identical joint and interface names**. Then `ros2 launch my_robot bringup.launch.py use_sim:=true|false` swaps ONE `<plugin>` tag, and the entire rest of the stack — Nav2, planners, TF — is identical. This is the digital twin pattern.
+</Callout>
+
+---
+
+> **Coming next:** Gazebo Ignition bridge configuration, sensor plugin tuning (camera intrinsics, LiDAR noise models), and CI-driven URDF linting.

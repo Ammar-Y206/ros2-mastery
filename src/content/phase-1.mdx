@@ -1,0 +1,576 @@
+# Phase 1: The Nervous System
+
+> Build the fundamental **Nervous System** of your robot. This phase establishes how every sensor and actuator acts as a single, synchronized organism using the ROS 2 Computation Graph.
+
+**What you will master:**
+
+- Transforming a single script into a distributed network of Nodes.
+- Mastering the Executor logic to ensure no sensor data is lost during high-speed processing.
+- Adhering to the ROS 2 SOP to maintain professional-grade code stability.
+
+---
+
+## What is Robotics Middleware?
+### The "Why": Why can't we just write a standalone C++ program?
+
+Imagine you want to build an autonomous mobile robot. Your first instinct might be to open an IDE and write a massive C++ program with a giant `while(true)` loop: read the LiDAR, process the camera frames, calculate the path, and send PWM signals to the steering servo.
+
+This monolithic approach fails instantly in the real world for three reasons:
+
+- **Concurrency and Bottlenecks:** Processing a 4K camera stream takes significant compute time. If your `while` loop is stuck waiting for an image frame, your robot isn't sending braking commands. It will crash.
+- **The Single Point of Failure:** In a monolithic script, a segmentation fault caused by a buggy camera driver crashes the entire program. The steering and brakes freeze because the camera failed.
+- **Reinventing the Wheel:** You would have to write custom drivers for every single piece of hardware from scratch, parsing raw bytes over USB or Ethernet.
+
+<Callout type="why" title="The Why — Middleware Exists">
+Robotics is fundamentally a **concurrency problem**. Sensors produce data at different rates, actuators demand commands at different latencies, and AI inference is computationally expensive. A single-threaded monolith cannot serve all of these simultaneously without blocking. Middleware exists to decompose that monolith into a coordinated distributed system.
+</Callout>
+
+### The "How": The Middleware Solution
+
+ROS is a **"Middleware."** It sits between the operating system (like Linux) and your specific robotics software. It provides a standardized framework that allows you to break that giant monolithic C++ program into dozens of small, independent, specialized programs (called **Nodes**) that run concurrently and talk to each other.
+
+<Callout type="how" title="The How — Where Middleware Sits">
+```
+┌─────────────────────────────────────────────┐
+│        Your Robotics Application            │
+│  (Perception, Planning, Control, UI...)     │
+├─────────────────────────────────────────────┤
+│              ROS 2 Middleware                │
+│   (DDS · Discovery · Serialization · IPC)   │
+├─────────────────────────────────────────────┤
+│         Operating System (Linux)             │
+├─────────────────────────────────────────────┤
+│       Hardware (CPU, RAM, Sensors, Bus)      │
+└─────────────────────────────────────────────┘
+```
+The middleware is the translator. Your application code never touches raw hardware or network sockets — ROS 2 abstracts all of that away.
+</Callout>
+
+---
+
+## Microservices / Nervous System Analogy
+Think of ROS like a biological nervous system or a modern cloud microservices architecture.
+
+In the human body, your eyes don't know how your legs work. Your eyes simply capture light, convert it into standard neural signals, and publish them to the brain. The brain subscribes to those signals, makes a decision, and publishes movement commands to the legs.
+
+ROS does exactly this for robots:
+
+- A **Camera Node** (the eye) only knows how to talk to a specific physical camera. It translates raw USB data into a standard ROS `Image` message and broadcasts it.
+- A **Perception Node** (the visual cortex) subscribes to that `Image`, detects object boundaries, and broadcasts a `Detection` message.
+- A **Control Node** (the motor cortex) subscribes to the detections and calculates steering angles.
+
+If you swap your camera for a completely different brand, the Perception and Control nodes don't care. They don't need to be rewritten. They just keep waiting for that standard `Image` message.
+
+<Callout type="best-practice" title="Best Practice — The Swap Test">
+A well-architected ROS 2 system passes the **Swap Test**: you can replace any single sensor or actuator with a different make/model, change only its driver node, and the rest of the system continues to function unchanged. If you can't do this, your architecture is too tightly coupled.
+</Callout>
+
+---
+
+## The 4 Pillars of ROS
+To make this distributed nervous system work, ROS provides four fundamental pillars:
+
+### 1. Hardware Abstraction (The Drivers)
+
+ROS provides pre-written, open-source packages that act as translators between raw hardware and the ROS ecosystem.
+
+**Real-world Use Case:** When you buy a Hokuyo LiDAR or an Ouster 3D LiDAR, you don't read the manufacturer's manual to decode byte streams. You just run the ROS driver provided by the manufacturer or community, and instantly, standard `LaserScan` or `PointCloud2` messages start flowing into your system.
+
+### 2. Message Passing (The Plumbing)
+
+The standardized communication protocols (built on DDS) allow a Python script running your AI to seamlessly pass data to a highly optimized C++ node handling motor control, as if they were the same program.
+
+**Real-world Use Case:** A complex autonomous vehicle might have an object detection algorithm written rapidly in Python, streaming bounding box coordinates to a path-planning algorithm written in Modern C++17 for maximum performance. ROS handles the serialization and network transit between the two languages invisibly.
+
+### 3. Package Management (The Ecosystem)
+
+A standardized way to organize, build, and share code.
+
+**Real-world Use Case:** You don't need to write a complex navigation algorithm from scratch. Because ROS uses standardized packages, you can download the **Nav2** package, configure it for your robot's kinematics, and instantly have state-of-the-art autonomous navigation.
+
+### 4. Tools (The Laboratory)
+
+A suite of powerful GUI tools for visualization, debugging, and simulation.
+
+**Real-world Use Case:** Before putting a physical robot on the track — where a software bug means destroyed hardware — you use **Gazebo** to simulate the physics of the robot and the sensors. You use **RViz2** to visually inspect what the robot's "brain" is seeing in real-time (e.g., overlaying the LiDAR point cloud onto a 3D grid).
+
+<Callout type="pitfall" title="CRITICAL Pitfall — The Monolithic 'God Node'">
+Beginners often adopt ROS but still write **"God Nodes"** — a single ROS node that handles camera processing, path planning, and control all at once. This defeats the entire purpose of the framework. If the node crashes, *everything* dies.
+</Callout>
+
+<Callout type="best-practice" title="Best Practice — Single Responsibility Principle">
+A node should do **exactly one thing**. One node reads the sensor. One node filters the data. One node plans the path. This makes debugging easy: if the path is bad, you check the output of the filtering node. If the filter output is good, you know the bug is strictly isolated inside the planner.
+</Callout>
+
+---
+
+## The Node (Fundamental Worker)
+### The "Why"
+
+As we discussed, a monolithic program is a liability. We need a way to encapsulate specific hardware interactions or algorithms into isolated, independent processes. The **"Node"** is the atomic unit of computation in ROS 2. It is the entity that connects to the DDS middleware, registers itself on the network, and handles its own specific job.
+
+### The "How" (Architecture Level)
+
+Under the hood, a ROS 2 Node is **not** a standalone magical entity; it is simply a C++ or Python class that inherits from the ROS Client Library base classes (`rclcpp::Node` or `rclpy.node.Node`). When you instantiate this class, it communicates with the underlying DDS implementation to announce its existence to the rest of the computation graph.
+
+### Use Cases
+
+- **The Sensor Driver:** A node specifically dedicated to reading wheel encoders on an autonomous mobile robot to calculate raw speed.
+- **The Safety Watchdog:** A lightweight node that constantly monitors system diagnostics and triggers an emergency stop if the main planner crashes.
+
+### Implementation: Writing Your First Node
+
+Industry standard dictates that ROS 2 code must always be **Object-Oriented**. We never write procedural scripts in the global scope. We will write a simple "Telemetry Node" that boots up and logs its status at a fixed frequency.
+
+<CodeBlock
+  title="src/telemetry_node.cpp"
+  cpp={`#include <chrono>          // Standard library for time/duration
+#include <memory>          // Standard library for smart pointers (Modern C++)
+#include "rclcpp/rclcpp.hpp"  // The core ROS 2 C++ client library
+
+using namespace std::chrono_literals;  // Allows us to write '500ms' instead of verbose chrono calls
+
+// 1. Inherit from the base rclcpp::Node class
+class TelemetryNode : public rclcpp::Node
+{
+public:
+  // 2. The Constructor: Name the node "telemetry_monitor" on the ROS graph
+  TelemetryNode() : Node("telemetry_monitor"), count_(0)
+  {
+    // 3. Create a timer that fires every 500 milliseconds.
+    // std::bind hooks the timer to our member function 'timer_callback'
+    timer_ = this->create_wall_timer(
+      500ms, std::bind(&TelemetryNode::timer_callback, this));
+
+    // Log a startup message to the console
+    RCLCPP_INFO(this->get_logger(), "Telemetry Node Initialized. Systems nominal.");
+  }
+
+private:
+  // 4. The Callback: This function executes every time the timer fires
+  void timer_callback()
+  {
+    RCLCPP_INFO(this->get_logger(), "Publishing telemetry packet #%d", count_++);
+  }
+
+  // Member variables
+  rclcpp::TimerBase::SharedPtr timer_;  // Smart pointer managing the timer's lifecycle
+  size_t count_;                        // Simple counter
+};
+
+int main(int argc, char * argv[]) {
+  // A. Initialize the ROS 2 communications network
+  rclcpp::init(argc, argv);
+
+  // B. Instantiate our node using a shared pointer (Modern C++ best practice)
+  auto node = std::make_shared<TelemetryNode>();
+
+  // C. Hand the node over to the Executor to spin (block and process callbacks)
+  rclcpp::spin(node);
+
+  // D. Clean shutdown of the ROS 2 network when the node is killed (Ctrl+C)
+  rclcpp::shutdown();
+  return 0;
+}`}
+  python={`import rclpy                # The core ROS 2 Python client library
+from rclpy.node import Node  # The base Node class
+
+# 1. Inherit from the base rclpy.node.Node class
+class TelemetryNode(Node):
+
+    def __init__(self):
+        # 2. The Constructor: Name the node "telemetry_monitor" on the ROS graph
+        super().__init__('telemetry_monitor')
+        self.count_ = 0
+
+        # 3. Create a timer that fires every 0.5 seconds, triggering 'timer_callback'
+        self.timer_ = self.create_timer(0.5, self.timer_callback)
+
+        # Log a startup message to the console
+        self.get_logger().info('Telemetry Node Initialized. Systems nominal.')
+
+    # 4. The Callback: This function executes every time the timer fires
+    def timer_callback(self):
+        self.get_logger().info(f'Publishing telemetry packet #{self.count_}')
+        self.count_ += 1
+
+def main(args=None):
+    # A. Initialize the ROS 2 communications network
+    rclpy.init(args=args)
+
+    # B. Instantiate our node
+    node = TelemetryNode()
+
+    # C. Hand the node over to the Executor to spin (block and process callbacks)
+    rclpy.spin(node)
+
+    # D. Clean shutdown of the ROS 2 network when the node is killed (Ctrl+C)
+    node.destroy_node()
+    rclpy.shutdown()
+
+if __name__ == '__main__':
+    main()`}
+/>
+
+<Callout type="how" title="The How — Anatomy of a Node">
+Every ROS 2 Node follows the same 4-step anatomy:
+1. **Inherit** from `rclcpp::Node` / `rclpy.node.Node`.
+2. **Name** the node in the constructor — this is its identity on the network.
+3. **Register** your callbacks (timers, subscribers, services) inside the constructor.
+4. **Spin** the node in `main()` — this hands control to the Executor.
+</Callout>
+
+---
+
+## Executors (The Engine of the Node)
+### The "Why"
+
+Look at the `main` function in both examples above. You created a node, but then you called `spin()`. Why? Because a Node by itself is just a **passive data structure**. It does nothing until an **"Executor"** gives it a thread to run on. If a network packet arrives from the LiDAR, something has to actively wake up, read the packet, and trigger your callback function.
+
+### The "How" (Architecture Level)
+
+The Executor is the actual engine of ROS 2 computation. It manages one or more threads and a queue of callbacks (timers, incoming messages, service requests).
+
+`rclcpp::spin(node)` creates a **Single-Threaded Executor** by default. It takes the calling thread (the main thread) and locks it into an infinite loop, checking the DDS queue and executing callbacks one by one, in order.
+
+### Use Cases
+
+- **Single-Threaded Executor:** Perfect for our Telemetry Node above. It only has one timer, so one thread is plenty.
+- **Multi-Threaded Executor:** Crucial for complex nodes like an autonomous path planner. If the planner receives a massive `PointCloud` message that takes 100ms to process, you do **not** want the node to ignore an emergency stop command during those 100ms. A multi-threaded executor allows the emergency command to be processed on thread #2 while thread #1 is busy with the PointCloud.
+
+<CodeBlock
+  title="src/multi_threaded_executor.cpp"
+  cpp={`#include <memory>
+#include "rclcpp/rclcpp.hpp"
+
+class PlannerNode : public rclcpp::Node {
+public:
+  PlannerNode() : Node("path_planner") {
+    // ... subscribers declared here
+  }
+};
+
+int main(int argc, char * argv[]) {
+  rclcpp::init(argc, argv);
+
+  // Use a MultiThreadedExecutor so a heavy callback cannot
+  // block time-critical callbacks (e.g. emergency stop).
+  rclcpp::executors::MultiThreadedExecutor executor;
+  auto node = std::make_shared<PlannerNode>();
+  executor.add_node(node);
+  executor.spin();
+
+  rclcpp::shutdown();
+  return 0;
+}`}
+  python={`import rclpy
+from rclpy.executors import MultiThreadedExecutor
+from rclpy.node import Node
+
+class PlannerNode(Node):
+    def __init__(self):
+        super().__init__('path_planner')
+        # ... subscribers declared here
+
+def main(args=None):
+    rclpy.init(args=args)
+
+    # Use a MultiThreadedExecutor so a heavy callback cannot
+    # block time-critical callbacks (e.g. emergency stop).
+    executor = MultiThreadedExecutor()
+    node = PlannerNode()
+    executor.add_node(node)
+    executor.spin()
+
+    node.destroy_node()
+    rclpy.shutdown()`}
+/>
+
+### Best Practices & Common Pitfalls
+
+<Callout type="pitfall" title="CRITICAL Pitfall — Blocking the Executor Thread">
+In a **Single-Threaded Executor**, if you put `sleep(5)` or a heavy `while(true)` mathematical calculation inside your `timer_callback`, the **entire node freezes**. No other timers will fire. No incoming messages will be read. Your robot will fly completely blind for 5 seconds.
+
+**Symptom:** Everything works in testing, then the robot crashes the moment sensor load increases.
+</Callout>
+
+<Callout type="best-practice" title="Best Practice — Callbacks Must Be Lightning-Fast">
+Callbacks should **read data, update state variables, and exit immediately**. If you have heavy computation, push it to a separate background thread or use a Multi-Threaded Executor with mutually exclusive Callback Groups.
+</Callout>
+
+<Callout type="pitfall" title="Pitfall — Global Variables for Cross-Callback State">
+Declaring global variables to share data between different ROS callbacks destroys thread safety and makes the node non-reusable.
+</Callout>
+
+<Callout type="best-practice" title="Best Practice — Encapsulate State in the Class">
+As demonstrated in the code, encapsulate everything within the class state (e.g. `self.count_`). This guarantees thread safety (when configured properly) and allows you to instantiate multiple instances of the same node type in a single process later on.
+</Callout>
+
+---
+
+## ROS 2 Development Lifecycle (SOP)
+### The "Why"
+
+Without a strict SOP, engineers will compile code in the wrong directories, overwrite environment variables, or run outdated binaries. This lifecycle enforces the **"Underlay/Overlay"** architecture, ensuring that your custom code seamlessly sits on top of the base ROS 2 framework without corrupting it.
+
+### The "How" (The Rhythm)
+
+This is the chronological loop you will execute hundreds of times a week as a ROS 2 developer.
+
+#### Step 1: Environment Setup (The Underlay)
+
+Before you can use any ROS 2 tools (`ros2`, `colcon`), your terminal needs to know they exist. You must **source** the base ROS 2 installation.
+
+<TerminalBlock title="bash">
+{`# This injects ROS 2 Humble commands and libraries into your current terminal.
+source /opt/ros/humble/setup.bash`}
+</TerminalBlock>
+
+#### Step 2: Workspace Creation
+
+You isolate your project from the rest of your Linux system by creating a dedicated workspace with a `src` directory.
+
+<TerminalBlock title="bash">
+{`mkdir -p ~/ros2_ws/src
+cd ~/ros2_ws/src`}
+</TerminalBlock>
+
+#### Step 3: Package Generation
+
+You generate the boilerplate architecture for your specific module.
+
+<TerminalBlock title="bash">
+{`# For a C++ Node:
+ros2 pkg create my_cpp_pkg --build-type ament_cmake --dependencies rclcpp
+
+# OR For a Python Node:
+ros2 pkg create my_python_pkg --build-type ament_python --dependencies rclpy`}
+</TerminalBlock>
+
+#### Step 4: Implementation (Code & Build Registration)
+
+This is where you write the actual logic (the `telemetry_node` code we wrote above).
+
+<Callout type="how" title="The How — Crucial Registration Step">
+You **must** register your node so the build system knows it exists:
+
+- **C++:** Edit `CMakeLists.txt` to add the executable (`add_executable`) and install rules.
+- **Python:** Edit `setup.py` and add your node to the `console_scripts` entry points.
+
+If you skip this, `colcon build` succeeds silently but `ros2 run` cannot find your executable — the most confusing beginner bug there is.
+</Callout>
+
+#### Step 5: Compilation (colcon)
+
+You return to the root of your workspace to compile. **You never compile from inside the `src` folder.**
+
+<TerminalBlock title="bash">
+{`cd ~/ros2_ws
+
+# The --symlink-install flag is mandatory for modern development.
+# It creates symbolic links to Python scripts and config files.
+# This means if you edit a Python file, you do NOT have to rebuild!
+colcon build --symlink-install`}
+</TerminalBlock>
+
+#### Step 6: Environment Registration (The Overlay) — CRITICAL
+
+`colcon` just built your code and put the binaries in the `install` folder. However, your terminal still does not know they exist. You must source the newly created **overlay**.
+
+<TerminalBlock title="bash">
+{`# This tells your terminal: "Look in here for my custom packages."
+source install/setup.bash`}
+</TerminalBlock>
+
+#### Step 7: Execution
+
+Now, and only now, can you run the node.
+
+<TerminalBlock title="bash">
+{`ros2 run my_cpp_pkg telemetry_node`}
+</TerminalBlock>
+
+#### Step 8: Verification
+
+To verify it works, you must open a **new terminal**. Because it is a new terminal, it is completely blank. You must repeat the sourcing steps before using the CLI tools.
+
+<TerminalBlock title="bash">
+{`# In Terminal 2:
+source /opt/ros/humble/setup.bash
+source ~/ros2_ws/install/setup.bash
+
+# Interrogate the graph
+ros2 node list
+ros2 node info /telemetry_monitor`}
+</TerminalBlock>
+
+<Callout type="best-practice" title="Best Practice — The .bashrc Automation">
+Typing `source /opt/ros/humble/setup.bash` in every single new terminal is exhausting. Engineers automate this by adding it to their `~/.bashrc` file so it runs automatically every time a terminal opens.
+
+However, you generally do **not** automate sourcing your custom overlay (`install/setup.bash`) to prevent cross-contamination during active development.
+</Callout>
+
+<Callout type="pitfall" title="Pitfall — The 'Ghost Code' Phenomenon">
+You edit a C++ file, type `ros2 run`, and nothing changes. You edit it again, still nothing. Why? Because you forgot to run `colcon build`. **C++ must always be recompiled.**
+</Callout>
+
+<Callout type="pitfall" title="Pitfall — The 'Cross-Contaminated Workspace'">
+If you have multiple workspaces (e.g. `navigation_ws` and `perception_ws`), **never** source them both in the same terminal while building. Sourcing an overlay before running `colcon build` can accidentally link your new code to the wrong dependencies.
+</Callout>
+
+---
+
+## Inspecting the Computation Graph (CLI Tools)
+### The "Why"
+
+ROS 2 runs as a **distributed system**. You might have 50 different nodes running simultaneously across three different computers on the same network. We need specialized Command Line Interface (CLI) tools to launch these nodes, verify their existence, and dissect their internal connections in real-time without stopping the system.
+
+### The "How" (Architecture Level)
+
+Under the hood, these CLI tools are essentially **temporary, hidden ROS 2 nodes themselves**. When you type a command like `ros2 node list`, the CLI spins up a temporary node, queries the DDS discovery protocol for active participants, prints the results to your terminal, and immediately shuts itself down.
+
+### 1. Executing the Code: `ros2 run`
+
+**The Why:** You cannot simply run a ROS 2 executable by typing `./telemetry_node`. The executable needs the ROS 2 environment variables, workspace paths, and middleware configurations to successfully join the network.
+
+**The How:** `ros2 run` searches your currently sourced workspaces (both the `/opt/ros/humble` underlay and your custom `ros2_ws` overlay) to locate the package and its registered executables.
+
+<TerminalBlock title="bash">
+{`# Syntax: ros2 run <package_name> <executable_name>
+# Example (Assuming we built the C++ package from above):
+ros2 run my_cpp_pkg telemetry_node
+
+# Expected Terminal Output:
+# [INFO] [1708214532.123456] [telemetry_monitor]: Telemetry Node Initialized. Systems nominal.
+# [INFO] [1708214532.623456] [telemetry_monitor]: Publishing telemetry packet #0
+# [INFO] [1708214533.123456] [telemetry_monitor]: Publishing telemetry packet #1`}
+</TerminalBlock>
+
+### 2. Network Verification: `ros2 node list`
+
+**The Why:** Just because a node hasn't crashed in the terminal doesn't mean it successfully connected to the ROS 2 network. We need a way to confirm that the middleware sees the node.
+
+**The How:** This command asks the DDS middleware to return the namespace and node name of every active participant it currently tracks.
+
+<TerminalBlock title="bash">
+{`ros2 node list
+
+# Expected Terminal Output:
+# /telemetry_monitor`}
+</TerminalBlock>
+
+### 3. Deep Introspection: `ros2 node info`
+
+**The Why:** Knowing a node is alive is only step one. We need to know its **interface**: What data is it broadcasting? What data is it listening for? What services does it offer? If node A isn't talking to node B, `node info` is your diagnostic scalpel.
+
+**The How:** This command queries the specific node directly over the ROS 2 graph to map out its active Publishers, Subscribers, Service Servers, Service Clients, and Action Servers.
+
+<TerminalBlock title="bash">
+{`# Syntax: ros2 node info <node_name>
+ros2 node info /telemetry_monitor
+
+# Expected Terminal Output:
+# /telemetry_monitor
+#   Subscribers:
+#     /parameter_events: rcl_interfaces/msg/ParameterEvent
+#   Publishers:
+#     /parameter_events: rcl_interfaces/msg/ParameterEvent
+#     /rosout: rcl_interfaces/msg/Log
+#   Service Servers:
+#     /telemetry_monitor/describe_parameters: rcl_interfaces/srv/DescribeParameters
+#     /telemetry_monitor/get_parameters: rcl_interfaces/srv/GetParameters
+#     ...`}
+</TerminalBlock>
+
+<Callout type="how" title="The How — Default Interfaces">
+Even though we didn't explicitly write any publishers or subscribers in our C++ code yet, ROS 2 **automatically attaches** default parameter and logging interfaces (`/rosout`) to every node. That's why you see them in `ros2 node info` output even on a barebones node.
+</Callout>
+
+### Best Practices & Common Pitfalls
+
+<Callout type="pitfall" title="Pitfall — Relying on ros2 run for Production">
+Beginners try to start an entire robot by opening 15 terminals and typing `ros2 run` in each one. This is unmanageable.
+</Callout>
+
+<Callout type="best-practice" title="Best Practice — Use ros2 launch for Production">
+Use `ros2 run` strictly for isolated development and debugging. When deploying the full system, you will use `ros2 launch` (covered in Phase 3) to bring up dozens of nodes deterministically with a single command.
+</Callout>
+
+<Callout type="pitfall" title="Pitfall — Name Collisions">
+If you use `ros2 run` to start the exact same node twice, the second node will boot up with the identical name (`/telemetry_monitor`). This causes massive routing confusion in the DDS middleware. Always ensure node names are unique, or use namespaces (e.g. `/robot1/telemetry_monitor`).
+</Callout>
+
+---
+
+## Phase 1 Knowledge Check
+
+<Quiz
+  title="Phase 1 — The Nervous System"
+  questions={[
+    {
+      id: "q1",
+      question: "Why does a monolithic 'while(true)' C++ program fail for robotics?",
+      options: [
+        "It cannot access USB devices directly.",
+        "Concurrency bottlenecks, single point of failure, and reinventing drivers.",
+        "C++ is too slow for real-time control.",
+        "Linux does not support monolithic programs.",
+      ],
+      correctIndex: 1,
+      explanation:
+        "A single loop blocks on any slow operation (e.g. a 4K camera frame), starving time-critical tasks like braking. A segfault in one module kills everything, and you must write every driver from scratch. Middleware solves all three.",
+    },
+    {
+      id: "q2",
+      question: "What does the Executor actually do?",
+      options: [
+        "It compiles the C++ code.",
+        "It manages threads and dispatches callbacks from the DDS queue.",
+        "It broadcasts messages to the network.",
+        "It launches Gazebo simulation.",
+      ],
+      correctIndex: 1,
+      explanation:
+        "A Node by itself is passive. The Executor spins an event loop, pulls ready work from the DDS queue, and invokes your callbacks (timers, subscribers, services). Without spin(), callbacks never fire.",
+    },
+    {
+      id: "q3",
+      question: "What is the deadliest sin in ROS 2 callback design?",
+      options: [
+        "Using smart pointers.",
+        "Blocking the executor thread with sleep() or heavy computation.",
+        "Logging too many INFO messages.",
+        "Naming the node with underscores.",
+      ],
+      correctIndex: 1,
+      explanation:
+        "In a Single-Threaded Executor, a blocking call inside a callback freezes the entire node — no other timers, messages, or services fire. Callbacks must read data, update state, and return immediately.",
+    },
+    {
+      id: "q4",
+      question: "After editing a Python node, what must you do before running it?",
+      options: [
+        "Nothing — Python is interpreted.",
+        "Run colcon build if you used --symlink-install, otherwise rebuild.",
+        "Reboot the computer.",
+        "Source /opt/ros/humble only.",
+      ],
+      correctIndex: 1,
+      explanation:
+        "With `colcon build --symlink-install`, Python files are symlinked so edits take effect without rebuilding. Without the flag, you must rebuild. C++ ALWAYS requires a rebuild.",
+    },
+    {
+      id: "q5",
+      question: "You run `ros2 run my_pkg telemetry_node` twice. What goes wrong?",
+      options: [
+        "Nothing — ROS 2 handles duplicates automatically.",
+        "A name collision: both nodes register as /telemetry_monitor, causing routing confusion.",
+        "The second instance segfaults immediately.",
+        "colcon disables the second run.",
+      ],
+      correctIndex: 1,
+      explanation:
+        "Both nodes register the same name on the DDS graph, which causes massive routing confusion. Use unique names or namespaces (e.g. /robot1/telemetry_monitor) to avoid this.",
+    },
+  ]}
+/>

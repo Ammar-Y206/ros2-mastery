@@ -1,0 +1,188 @@
+# Phase 3: The Command Center
+
+> Take full control of the robot's behavior. Move from running parts to orchestrating a complete autonomous machine that can be tuned, launched, and diagnosed with professional precision.
+
+**What you will master:**
+
+- Tuning performance in real-time using **Dynamic Parameters** without restarting the system.
+- Automating the entire autonomous stack deployment with a single **Master Launch File**.
+- Utilizing **Rosbag2** as a 'Flight Data Recorder' and **RViz2** as our visual eyes.
+
+---
+
+## Parameters — Dynamic Configuration
+### The "Why" & The "How" (Distributed Parameters)
+
+Parameters are the **runtime configuration knobs** of a node. Instead of hardcoding values like `max_velocity = 2.5` in source code (requiring a recompile to change), you expose them as parameters. They can be set via YAML files, the CLI, or other nodes — and with *dynamic parameters*, the node reconfigures itself live without restarting.
+
+<Callout type="how" title="The How — Parameter Types">
+ROS 2 parameters support: `bool`, `int64`, `float64`, `string`, `byte[]`, and arrays of each. Every parameter has a **descriptor** specifying type, description, constraints (min/max), and whether it's read-only or dynamic.
+</Callout>
+
+<CodeBlock
+  title="src/dynamic_param_node.cpp"
+  cpp={`#include "rclcpp/rclcpp.hpp"
+
+class TunableNode : public rclcpp::Node {
+public:
+  TunableNode() : Node("tunable_node") {
+    // Declare a dynamic parameter with a default and description
+    this->declare_parameter<double>("max_velocity", 2.5);
+    auto desc = rcl_interfaces::msg::ParameterDescriptor();
+    desc.description = "Maximum allowed linear velocity (m/s)";
+    desc.dynamic_typing = false;
+
+    // Register a callback that fires whenever the param changes
+    param_cb_ = this->add_on_set_parameters_callback(
+      [this](const std::vector<rclcpp::Parameter> & params) {
+        auto result = rcl_interfaces::msg::SetParametersResult();
+        result.successful = true;
+        for (const auto & p : params) {
+          if (p.get_name() == "max_velocity") {
+            double v = p.as_double();
+            if (v < 0.0 || v > 10.0) {
+              result.successful = false;
+              result.reason = "max_velocity must be in [0.0, 10.0]";
+              return result;
+            }
+            RCLCPP_INFO(this->get_logger(), "max_velocity updated -> %.2f", v);
+          }
+        }
+        return result;
+      });
+  }
+private:
+  rclcpp::node_interfaces::OnSetParametersCallbackHandle::SharedPtr param_cb_;
+};
+
+int main(int argc, char ** argv) {
+  rclcpp::init(argc, argv);
+  rclcpp::spin(std::make_shared<TunableNode>());
+  rclcpp::shutdown();
+}`}
+  python={`import rclpy
+from rclpy.node import Node
+from rcl_interfaces.msg import SetParametersResult
+
+class TunableNode(Node):
+    def __init__(self):
+        super().__init__('tunable_node')
+        # Declare a parameter with a default
+        self.declare_parameter('max_velocity', 2.5)
+
+        # Register a callback that fires whenever the param changes
+        self.add_on_set_parameters_callback(self._on_param_change)
+
+    def _on_param_change(self, params):
+        result = SetParametersResult()
+        result.successful = True
+        for p in params:
+            if p.name == 'max_velocity':
+                v = float(p.value)
+                if not (0.0 <= v <= 10.0):
+                    result.successful = False
+                    result.reason = 'max_velocity must be in [0.0, 10.0]'
+                    return result
+                self.get_logger().info(f'max_velocity updated -> {v:.2f}')
+        return result
+
+def main(args=None):
+    rclpy.init(args=args)
+    rclpy.spin(TunableNode())
+    rclpy.shutdown()`}
+/>
+
+<TerminalBlock title="bash">
+{`# Inspect and mutate parameters live
+ros2 param list /tunable_node
+ros2 param get /tunable_node max_velocity
+ros2 param set /tunable_node max_velocity 3.8
+ros2 param dump /tunable_node > params.yaml`}
+</TerminalBlock>
+
+<Callout type="pitfall" title="CRITICAL Pitfall — No Validation Callback">
+If you change a parameter without a validation callback, an out-of-range value silently corrupts your control loop. **Always register an `add_on_set_parameters_callback`** that validates ranges and rejects invalid values with `result.successful = false`.
+</Callout>
+
+---
+
+## The Launch System
+### Implementation: The Python Launch File
+
+Launch files replace the chaos of opening 15 terminals with `ros2 run`. A single `ros2 launch` command brings up the entire stack — with deterministic ordering, parameter loading, and remapping.
+
+<CodeBlock
+  title="launch/bringup.launch.py"
+  language="python"
+>{`from launch import LaunchDescription
+from launch.actions import DeclareLaunchArgument, GroupAction
+from launch.substitutions import LaunchConfiguration
+from launch_ros.actions import Node
+import os
+
+def generate_launch_description():
+    pkg_dir = os.getenv('WS_DIR', '.')
+
+    return LaunchDescription([
+        # Launch arguments with defaults
+        DeclareLaunchArgument('use_sim', default_value='false'),
+
+        # Group nodes so they share namespace and parameter file
+        GroupAction([
+            Node(
+                package='my_robot_drivers',
+                executable='lidar_driver',
+                name='lidar',
+                parameters=[os.path.join(pkg_dir, 'config/lidar.yaml')],
+                remappings=[('/scan', '/lidar/scan')],
+                output='screen',
+            ),
+            Node(
+                package='my_robot_nav',
+                executable='planner_node',
+                name='planner',
+                parameters=[{
+                    'max_velocity': 2.5,
+                    'use_sim_time': LaunchConfiguration('use_sim'),
+                }],
+                output='screen',
+            ),
+        ]),
+    ])`}</CodeBlock>
+
+<Callout type="best-practice" title="Best Practice — Launch File Composition">
+Never put your entire robot in one launch file. Build **modular** per-subsystem launch files (sensors.launch.py, navigation.launch.py, perception.launch.py) and compose them into a single `master_bringup.launch.py` using `IncludeLaunchDescription`. This keeps each subsystem independently testable.
+</Callout>
+
+---
+
+## Debugging & Data Logging
+### The "Why" & The "How" (The Black Box & The Visualizer)
+
+When a robot fails in the field, you need a **flight data recorder** (Rosbag2) to replay the exact sensor stream offline, and a **visualizer** (RViz2) to see what the robot's "brain" perceived at the moment of failure.
+
+<TerminalBlock title="bash">
+{`# Record all topics for 30 seconds
+ros2 bag record -a -o session_01 -d 30
+
+# Inspect a recorded bag
+ros2 bag info session_01
+
+# Play it back (with simulated time so nodes read the bag clock)
+ros2 bag play session_01 --clock
+
+# Launch the visualizer
+rviz2`}
+</TerminalBlock>
+
+<Callout type="pitfall" title="CRITICAL Pitfall — Forgetting use_sim_time">
+When playing back a bag, all nodes that consume the bag's data MUST be launched with `use_sim_time:=true`. Otherwise they use wall-clock time, causing TF lookups to fail with "past extrapolation" errors. Always pass `--clock` to `ros2 bag play` AND set `use_sim_time` on subscribers.
+</Callout>
+
+<Callout type="best-practice" title="Best Practice — Always Be Recording">
+In field testing, run `ros2 bag record -a` continuously. Disk is cheap; a failed test you can't replay is expensive. Tag each bag with a timestamp and a one-line note about what was being tested.
+</Callout>
+
+---
+
+> **Coming next:** Full deep-dives into custom parameter validators, launch event handlers (handlers for `OnProcessExit`, `OnProcessIO`), and advanced RViz2 plugin configuration.

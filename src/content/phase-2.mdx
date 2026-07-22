@@ -1,0 +1,87 @@
+# Phase 2: Integrated Communication Protocols
+
+> Master the **language of robotics**. Define the protocols for how the robot 'talks' — from the non-stop stream of LiDAR data to the critical mission commands that must never fail.
+
+**What you will master:**
+
+- Creating robust **Publishers/Subscribers** for continuous telemetry and sensor feeds.
+- Designing **Services** for instant, reliable hardware triggers (like resetting an encoder).
+- Implementing **Actions** for complex maneuvers with proactive cancellation safety.
+
+---
+
+## The Three Communication Primitives
+
+ROS 2 provides three distinct communication patterns, each engineered for a specific temporal characteristic. Choosing the wrong one is a common architectural failure.
+
+| Primitive | Pattern | Latency | Use Case |
+|-----------|---------|---------|----------|
+| **Topic** | Pub/Sub | Continuous, fire-and-forget | Sensor streams, telemetry |
+| **Service** | Request/Response | Synchronous, blocking | Hardware triggers, configuration |
+| **Action** | Goal/Feedback/Result | Asynchronous, long-running | Navigation, manipulation |
+
+## Topics — Continuous Data Streams
+### The "Why"
+
+Imagine an autonomous vehicle driving at 30 km/h. The LiDAR is spinning at 10Hz, generating thousands of data points per second. The motor controller needs constant updates on the target velocity.
+
+You cannot use a "Request/Response" system for this. The motor controller shouldn't have to constantly ask, *"What is my speed now? How about now?"* Topics exist to solve the need for **continuous, decoupled, unidirectional data streams**.
+
+### The "How" (Architecture Level)
+
+Under the hood, Topics use the DDS **Publish/Subscribe** pattern.
+
+- **Decoupled & Anonymous:** A node publishing to a topic has no idea who is listening. A node subscribing to a topic has no idea who is sending the data. They only care about the **Topic Name** (e.g. `/vehicle/speed`) and the **Message Type** (e.g. `std_msgs/Float32`).
+- **Many-to-Many:** One LiDAR node can publish to `/scan`. Five different nodes (Mapping, Obstacle Avoidance, Visualizer, Data Logger, Safety Watchdog) can all subscribe to `/scan` simultaneously without bottlenecking the publisher.
+
+<Callout type="how" title="The How — Topic Anatomy">
+A topic is defined by three things:
+1. **Name** — a URI-like string (`/vehicle/speed`, `/scan`, `/camera/image_raw`)
+2. **Type** — a strongly-typed message definition (`std_msgs/msg/Float32`, `sensor_msgs/msg/LaserScan`)
+3. **QoS** — Quality of Service profile (reliability, durability, history depth)
+</Callout>
+
+### Real-world Use Cases
+
+- **Publishers:** Wheel encoders publishing the current physical velocity; a camera driver continuously publishing raw image frames; an IMU publishing linear acceleration and angular velocity.
+- **Subscribers:** The dashboard UI listening to the velocity to display a speedometer; the perception algorithm subscribing to the camera frames to detect obstacles; the Extended Kalman Filter (EKF) subscribing to the IMU to calculate exact vehicle pose.
+
+## Services — Synchronous Requests
+### The "Why" & The "How" (Client/Server Architecture)
+
+Some operations are inherently **request/response**: *"Reset the encoder counter now,"* *"What is the current battery voltage?"* These are short, discrete, and must confirm success. Services model this exactly — a synchronous Client/Server pattern over the ROS graph.
+
+<Callout type="pitfall" title="CRITICAL Pitfall — The Deadlock Trap">
+Never call a service synchronously from inside a callback that is serviced by the same Single-Threaded Executor as the server. The client blocks waiting for a response that the executor can never deliver — a classic **deadlock**. Always use the async client API (`async_send_request`) inside callbacks.
+</Callout>
+
+## Actions — Asynchronous, Long-Running Tasks
+### The "Why" & The "How" (Proactive Cancellation)
+
+Actions are the most sophisticated primitive. They wrap a long-running goal (e.g. "navigate to coordinate X,Y") with three channels:
+
+1. **Goal** — the request ("drive to X,Y")
+2. **Feedback** — periodic progress ("40% there, current pose is...")
+3. **Result** — the final outcome ("arrived in 12.3 seconds")
+
+<Callout type="best-practice" title="Best Practice — Proactive Cancellation Safety">
+If a new higher-priority goal arrives (e.g. an obstacle appears mid-navigation), you must **cancel the running goal** before accepting the new one. ROS 2 Actions support proactive cancellation — always implement the cancel callback to safely halt actuators before the new goal takes control.
+</Callout>
+
+<TerminalBlock title="bash">
+{`# Inspect the action graph
+ros2 action list
+ros2 action info /navigate_to_pose
+ros2 action send_goal /navigate_to_pose nav2_msgs/action/NavigateToPose "{pose: {pose: {position: {x: 1.0, y: 2.0, z: 0.0}}}}"`}
+</TerminalBlock>
+
+---
+
+<Callout type="best-practice" title="Choosing the Right Primitive">
+- **Is the data a continuous stream?** → Topic
+- **Is it a quick question with one answer?** → Service
+- **Does it take a long time and need progress updates?** → Action
+- **Do you need to cancel it mid-flight?** → Action (services cannot be cancelled)
+</Callout>
+
+> **Coming next:** Full implementation walkthroughs — the Publisher, Subscriber, Service Server/Client, and Action Client with safety preemption. Each with dual C++/Python code and CLI inspection labs.
