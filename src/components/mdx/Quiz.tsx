@@ -100,29 +100,56 @@ export function Quiz({ questions, title = "Knowledge Check", className }: QuizPr
       data-quiz=""
     >
       {/* Header */}
-      <header className="flex items-center gap-3 border-b border-border bg-gradient-to-r from-cyan-500/10 to-transparent px-5 py-4 sm:px-6">
-        <div
-          className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-cyan-500/15 text-cyan-300 ring-1 ring-cyan-500/30"
-          aria-hidden="true"
-        >
-          <GraduationCap className="size-5" />
+      <header className="relative border-b border-border bg-gradient-to-r from-cyan-500/10 via-cyan-500/5 to-transparent px-5 py-4 sm:px-6">
+        <div className="flex items-center gap-3">
+          <div
+            className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-cyan-500/15 text-cyan-300 ring-1 ring-cyan-500/30"
+            aria-hidden="true"
+          >
+            <GraduationCap className="size-5" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <h3 className="text-base font-semibold text-foreground sm:text-lg">
+              {title}
+            </h3>
+            <p className="text-xs text-muted-foreground tabular-nums">
+              <span className={cn(allAnswered && correctCount === safeQuestions.length ? "text-emerald-400 font-medium" : "")}>
+                {answeredCount}
+              </span>
+              {" "}of{" "}
+              {safeQuestions.length} answered
+              {allAnswered && (
+                <span className="ml-2 text-cyan-400">· Score: {correctCount}/{safeQuestions.length}</span>
+              )}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={handleReset}
+            className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-3 py-1.5 text-xs font-medium text-muted-foreground transition-all hover:border-cyan-500/40 hover:text-cyan-300 active:scale-95"
+          >
+            <RotateCcw className="size-3.5" aria-hidden="true" />
+            <span className="hidden sm:inline">Reset Quiz</span>
+          </button>
         </div>
-        <div className="min-w-0 flex-1">
-          <h3 className="text-base font-semibold text-foreground sm:text-lg">
-            {title}
-          </h3>
-          <p className="text-xs text-muted-foreground">
-            {answeredCount} of {safeQuestions.length} answered
-          </p>
+        {/* Mini progress bar in the header */}
+        <div className="mt-3 h-1 w-full overflow-hidden rounded-full bg-border/60">
+          <div
+            className={cn(
+              "h-full rounded-full transition-all duration-500 ease-out",
+              allAnswered
+                ? correctCount === safeQuestions.length
+                  ? "bg-gradient-to-r from-emerald-400 to-teal-400"
+                  : correctCount / safeQuestions.length >= 0.5
+                    ? "bg-gradient-to-r from-cyan-400 to-teal-400"
+                    : "bg-gradient-to-r from-rose-400 to-amber-400"
+                : "bg-gradient-to-r from-cyan-400 to-teal-400"
+            )}
+            style={{
+              width: `${safeQuestions.length > 0 ? (answeredCount / safeQuestions.length) * 100 : 0}%`,
+            }}
+          />
         </div>
-        <button
-          type="button"
-          onClick={handleReset}
-          className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:border-cyan-500/40 hover:text-cyan-300"
-        >
-          <RotateCcw className="size-3.5" aria-hidden="true" />
-          <span className="hidden sm:inline">Reset Quiz</span>
-        </button>
       </header>
 
       {/* Questions */}

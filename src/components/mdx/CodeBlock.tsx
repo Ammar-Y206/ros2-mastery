@@ -5,6 +5,7 @@ import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import oneDark from "react-syntax-highlighter/dist/esm/styles/prism/one-dark";
 import { Check, Copy, Terminal } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useProgressStore } from "@/store/progress-store";
 
 export interface CodeBlockProps {
   /** C++ source code (mutually exclusive with single-language `children`) */
@@ -87,7 +88,9 @@ function toPlainText(node: React.ReactNode): string {
 
 /**
  * CodeBlock — a syntax-highlighted code block with optional C++ / Python tabs
- * and a copy-to-clipboard button.
+ * and a copy-to-clipboard button. The active tab is synced to a global
+ * `preferredLanguage` preference in the progress store, so switching to Python
+ * on one block switches all blocks on the page.
  */
 export function CodeBlock({
   cpp,
@@ -103,31 +106,58 @@ export function CodeBlock({
     [children],
   );
 
-  const [activeTab, setActiveTab] = React.useState<TabKey>(
+  // Sync with the global preferred language preference
+  const preferredLanguage = useProgressStore((s) => s.preferredLanguage);
+  const setPreferredLanguage = useProgressStore(
+    (s) => s.setPreferredLanguage,
+  );
+
+  const [localTab, setLocalTab] = React.useState<TabKey>(
     hasTabs ? "cpp" : "text",
+  );
+
+  // When the global preference changes (or on first mount), sync the local tab.
+  React.useEffect(() => {
+    if (hasTabs && preferredLanguage) {
+      setLocalTab(preferredLanguage);
+    }
+  }, [hasTabs, preferredLanguage]);
+
+  const handleTabChange = React.useCallback(
+    (key: TabKey) => {
+      setLocalTab(key);
+      // Persist the choice globally
+      if (key === "cpp" || key === "python") {
+        setPreferredLanguage(key);
+      }
+    },
+    [setPreferredLanguage],
   );
 
   const { copied, copy } = useCopyToClipboard();
 
   const currentCode = hasTabs
-    ? activeTab === "cpp"
+    ? localTab === "cpp"
       ? (cpp as string)
       : (python as string)
     : fallback;
 
-  const currentLang: TabKey = hasTabs ? activeTab : "text";
+  const currentLang: TabKey = hasTabs ? localTab : "text";
   const prismLang = hasTabs
-    ? LANG_CONFIG[activeTab].prismLang
+    ? LANG_CONFIG[localTab].prismLang
     : language || "text";
 
   const handleCopy = React.useCallback(() => {
     if (currentCode) copy(currentCode);
   }, [copy, currentCode]);
 
+  // Line count for the "X lines" label
+  const lineCount = currentCode ? currentCode.split("\n").length : 0;
+
   return (
     <div
       className={cn(
-        "group relative my-6 overflow-hidden rounded-lg border border-border bg-[#0d1117] shadow-lg",
+        "group relative my-6 overflow-hidden rounded-lg border border-border bg-[#0d1117] shadow-lg transition-shadow hover:shadow-cyan-500/5",
         className,
       )}
       data-codeblock=""
@@ -139,20 +169,25 @@ export function CodeBlock({
           <span className="truncate font-mono">
             {title ?? (hasTabs ? "snippet" : language || "code")}
           </span>
+          {lineCount > 0 && (
+            <span className="hidden shrink-0 text-[10px] text-slate-500 sm:inline">
+              · {lineCount} lines
+            </span>
+          )}
         </div>
         <div className="flex items-center gap-2">
           <span
             className="rounded border border-cyan-500/30 bg-cyan-500/10 px-1.5 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-wider text-cyan-300"
             aria-hidden="true"
           >
-            {hasTabs ? LANG_CONFIG[activeTab].badge : (language || "txt").toUpperCase().slice(0, 4)}
+            {hasTabs ? LANG_CONFIG[localTab].badge : (language || "txt").toUpperCase().slice(0, 4)}
           </span>
           <button
             type="button"
             onClick={handleCopy}
             aria-label={copied ? "Copied to clipboard" : "Copy code to clipboard"}
             className={cn(
-              "inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[11px] font-medium transition-colors",
+              "inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[11px] font-medium transition-all active:scale-95",
               copied
                 ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-300"
                 : "border-white/10 bg-white/5 text-slate-300 hover:border-cyan-500/40 hover:bg-cyan-500/10 hover:text-cyan-200",
@@ -181,14 +216,14 @@ export function CodeBlock({
           className="flex border-b border-white/5 bg-[#0d1117]"
         >
           {(["cpp", "python"] as const).map((key) => {
-            const isActive = activeTab === key;
+            const isActive = localTab === key;
             return (
               <button
                 key={key}
                 role="tab"
                 type="button"
                 aria-selected={isActive}
-                onClick={() => setActiveTab(key)}
+                onClick={() => handleTabChange(key)}
                 className={cn(
                   "relative -mb-px px-4 py-2 text-xs font-medium transition-colors",
                   isActive
@@ -200,7 +235,7 @@ export function CodeBlock({
                 {isActive && (
                   <span
                     aria-hidden="true"
-                    className="absolute inset-x-0 bottom-0 h-0.5 bg-cyan-400"
+                    className="absolute inset-x-0 bottom-0 h-0.5 bg-gradient-to-r from-cyan-400 to-teal-400"
                   />
                 )}
               </button>
@@ -214,6 +249,14 @@ export function CodeBlock({
         <SyntaxHighlighter
           language={prismLang}
           style={oneDark}
+          showLineNumbers={currentCode.split("\n").length > 3}
+          lineNumberStyle={{
+            color: "#3b4252",
+            fontSize: "0.75rem",
+            paddingRight: "1rem",
+            userSelect: "none",
+            minWidth: "2.5em",
+          }}
           customStyle={{
             margin: 0,
             padding: "1rem 1.25rem",

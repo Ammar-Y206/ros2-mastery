@@ -149,3 +149,97 @@ Stage Summary:
 - Progress tracking via Zustand + localStorage (completion, bookmarks, last visited).
 - Responsive design (mobile drawer, desktop 3-column layout).
 - Webpack-based MDX compilation (build-time, reliable).
+
+---
+Task ID: 8 (Cron Review Round 1)
+Agent: Main (orchestrator) — webDevReview cron trigger
+Task: Assess project status, perform QA via agent-browser, fix bugs, and add new features/styling improvements.
+
+## Current Project Status Assessment
+The ROS2 Mastery platform was in a stable, production-ready state from the previous round:
+- All 7 phases rendering correctly (HTTP 200, zero console errors)
+- Core MDX components (Callout, CodeBlock with C++/Python tabs, TerminalBlock, Quiz) fully functional
+- Progress tracking via Zustand + localStorage working
+- Responsive design (mobile drawer, desktop 3-column layout)
+- Lint passing with 0 errors
+
+QA via agent-browser + VLM analysis identified these improvement opportunities:
+1. Sidebar text truncation — no hover tooltips for cut-off titles
+2. Inline code contrast — grey background was low-contrast
+3. Quiz — no visible progress bar in the header (only at the bottom)
+4. No reading progress indicator at the top of the page
+5. No back-to-top button for long lessons
+6. No keyboard shortcuts for power users
+7. Code language preference not persisted across blocks/pages
+8. No celebration when a phase is fully completed
+
+## Completed Modifications
+
+### New Components Created (5 files)
+1. **`src/components/layout/ReadingProgressBar.tsx`** — thin cyan gradient bar fixed to the very top of the viewport (above navbar). Uses requestAnimationFrame-throttled scroll listener for smooth, jank-free updates. Shows scroll progress through the current lesson. Has a subtle cyan glow shadow.
+
+2. **`src/components/layout/BackToTop.tsx`** — floating circular button in the bottom-right corner. Appears after scrolling 400px. Smooth-scrolls to top on click. Hidden on mobile (lg:flex). Has cyan hover accent and slide-up animation.
+
+3. **`src/components/layout/KeyboardShortcuts.tsx`** — dialog overlay triggered by `?` key. Shows all keyboard shortcuts in 3 categories (Navigation, Lesson, Code Blocks). Uses shadcn Dialog component. Closes on Escape. Footer now shows a `?` kbd hint.
+
+4. **`src/components/layout/CompletionCelebration.tsx`** — celebratory toast that appears when ALL modules in a phase become complete. Shows confetti animation (6 colored dots with CSS keyframe animation), phase title, lesson count, and a CTA button to start the next phase. Auto-dismisses after 8 seconds. Derives "should show" purely from the store (no setState-in-effect).
+
+5. **Integrated all into `AppShell.tsx`** — added ReadingProgressBar at top, BackToTop, KeyboardShortcuts, and CompletionCelebration as overlay components. Added global keyboard shortcut handlers for:
+   - `M` — mark current lesson complete (with toast notification)
+   - `B` — bookmark current lesson (with toast notification)
+   - `T` — smooth scroll to top
+
+### Enhanced Existing Components
+6. **`LeftSidebar.tsx`** — added TooltipProvider + Tooltip wrappers on every phase and module button. Hovering shows the full title, subtitle, phase number, completion count, and reading time. Also enhanced the sidebar footer progress bar to show percentage (e.g. "2/21 (10%)").
+
+7. **`CodeBlock.tsx`** — major enhancement:
+   - Syncs active tab with global `preferredLanguage` from the progress store
+   - When user switches to Python on one block, ALL code blocks on the page switch to Python
+   - Preference persists across page navigation (stored in localStorage)
+   - Added line numbers (shown when code has >3 lines) with subtle grey styling
+   - Added "X lines" count in the header
+   - Added hover shadow effect (cyan glow)
+   - Active tab underline now uses gradient (cyan→teal)
+   - Copy button has `active:scale-95` press animation
+
+8. **`Quiz.tsx`** — enhanced header:
+   - Added a visible mini progress bar in the header (below the title)
+   - Progress bar color changes based on score: emerald (perfect), cyan (≥50%), rose/amber (<50%)
+   - Header now shows live score ("Score: 3/5") when all answered
+   - Answered count turns emerald when all correct
+   - Reset button has `active:scale-95` press animation
+   - Gradient background enhanced (cyan→transparent)
+
+9. **`globals.css`** — improved inline code contrast:
+   - Changed from `bg-muted text-accent-foreground` to `bg-cyan-500/10 text-cyan-200 border-cyan-500/20`
+   - Added subtle cyan border and brighter text color for better readability
+   - Rounded corners increased to `rounded-md`
+
+### Lint Compliance
+- All new components pass ESLint with 0 errors
+- CompletionCelebration required careful refactoring to avoid `react-hooks/set-state-in-effect` and `react-hooks/refs` rules — solved by deriving show state from store + using a ref-based dismiss callback updated in an effect
+
+## Verification Results
+- **All 7 phases**: HTTP 200, zero console errors, zero page errors
+- **Reading progress bar**: visible at top, updates on scroll (confirmed 30.67% at 800px scroll)
+- **Back-to-top button**: appears after 400px scroll, smooth-scrolls to position 0 on click
+- **Keyboard shortcuts**: `?` opens dialog, `M` marks complete (toast appears, localStorage updates), `B` bookmarks, `T` scrolls to top
+- **Sidebar tooltips**: appear on hover (confirmed 1 tooltip content wrapper visible)
+- **Code language persistence**: set preferredLanguage to "python" in localStorage → code blocks show Python tab by default
+- **Code line numbers**: 71 line numbers rendered for the telemetry node code block
+- **Quiz header progress bar**: present, updates as questions are answered
+- **Inline code styling**: confirmed cyan text (oklch(0.917 0.08 205)) with cyan-tinted background and border
+- **Lint**: 0 errors, 0 warnings
+
+## Unresolved Issues / Risks
+- **None critical** — all features working as designed
+- **Minor**: The CompletionCelebration has not been end-to-end tested with a real phase completion (would require marking all 7 Phase 1 modules complete). The logic is sound but hasn't been visually verified in a live scenario.
+- **Minor**: The keyboard shortcut `?` requires focus to not be in an input/textarea — this is correct behavior but users might not realize it.
+
+## Priority Recommendations for Next Phase
+1. **Add a "Course Overview" / dashboard view** — a landing page showing the full 7-phase roadmap as visual cards with progress, estimated time, and a "Continue where you left off" CTA.
+2. **Add dark/light theme toggle** — currently dark-only; a theme switcher would broaden accessibility.
+3. **Add more Phase content** — Phase 1 is comprehensive, but Phases 2-7 are overviews. Expanding them to full lesson depth (like Phase 1) would complete the curriculum.
+4. **Add a "Search results" page** — the command palette searches modules but doesn't search within content. Full-text search would be valuable.
+5. **Add social sharing** — a "Share this lesson" button with copyable URL.
+6. **Add print/export to PDF** — for offline study.

@@ -1,11 +1,17 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Navbar } from "@/components/layout/Navbar";
 import { LeftSidebar } from "@/components/layout/LeftSidebar";
 import { RightSidebar } from "@/components/layout/RightSidebar";
 import { DocContent } from "@/components/layout/DocContent";
+import { ReadingProgressBar } from "@/components/layout/ReadingProgressBar";
+import { BackToTop } from "@/components/layout/BackToTop";
+import { KeyboardShortcuts } from "@/components/layout/KeyboardShortcuts";
+import { CompletionCelebration } from "@/components/layout/CompletionCelebration";
+import { useModuleProgress } from "@/hooks/use-progress";
+import { useToast } from "@/hooks/use-toast";
 
 interface AppShellProps {
   moduleId: string;
@@ -23,6 +29,8 @@ export function AppShell({ moduleId, children }: AppShellProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+  const { toggle, bookmarked, toggleBookmark } = useModuleProgress(moduleId);
+  const { toast } = useToast();
 
   const handleNavigate = useCallback(
     (nextModuleId: string) => {
@@ -36,8 +44,46 @@ export function AppShell({ moduleId, children }: AppShellProps) {
     [router, searchParams]
   );
 
+  // Global keyboard shortcuts for lesson actions (M, B, T)
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      const isTyping =
+        target.tagName === "INPUT" ||
+        target.tagName === "TEXTAREA" ||
+        target.isContentEditable ||
+        target.getAttribute("role") === "combobox";
+
+      if (isTyping || e.metaKey || e.ctrlKey || e.altKey) return;
+
+      if (e.key.toLowerCase() === "m") {
+        e.preventDefault();
+        toggle();
+        toast({
+          title: "Lesson marked complete",
+          description: "Progress saved locally.",
+        });
+      } else if (e.key.toLowerCase() === "b") {
+        e.preventDefault();
+        toggleBookmark();
+        toast({
+          title: bookmarked ? "Bookmark removed" : "Lesson bookmarked",
+          description: bookmarked
+            ? "Removed from your saved lessons."
+            : "Saved for later reference.",
+        });
+      } else if (e.key.toLowerCase() === "t") {
+        e.preventDefault();
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [toggle, toggleBookmark, bookmarked, toast]);
+
   return (
     <div className="flex min-h-screen flex-col bg-background">
+      <ReadingProgressBar />
       <Navbar
         onToggleSidebar={() => setMobileSidebarOpen((o) => !o)}
         onNavigate={handleNavigate}
@@ -73,10 +119,17 @@ export function AppShell({ moduleId, children }: AppShellProps) {
           <p className="flex items-center gap-3">
             <span>Progress saved locally</span>
             <span className="opacity-40">·</span>
-            <span>Built with Next.js · MDX · shadcn/ui</span>
+            <span className="hidden sm:inline">Press </span>
+            <kbd className="hidden sm:inline-flex h-5 items-center rounded border border-border bg-muted px-1.5 font-mono text-[10px]">?</kbd>
+            <span className="hidden sm:inline"> for shortcuts</span>
           </p>
         </div>
       </footer>
+
+      {/* Floating / overlay components */}
+      <BackToTop />
+      <KeyboardShortcuts />
+      <CompletionCelebration moduleId={moduleId} onNavigate={handleNavigate} />
     </div>
   );
 }
