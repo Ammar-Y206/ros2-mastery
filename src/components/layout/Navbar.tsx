@@ -22,6 +22,7 @@ import { BookmarksButton } from "@/components/layout/BookmarksButton";
 import { AchievementsButton } from "@/components/layout/AchievementsButton";
 import { CompletedButton } from "@/components/layout/CompletedButton";
 import { RemainingTime } from "@/components/layout/RemainingTime";
+import { StreakBadge } from "@/components/layout/StreakBadge";
 
 interface NavbarProps {
   onToggleSidebar: () => void;
@@ -113,10 +114,11 @@ export function Navbar({ onToggleSidebar, onNavigate, activeModuleId }: NavbarPr
           <Search className="h-5 w-5" />
         </button>
 
-        {/* Progress indicator + remaining time */}
+        {/* Progress indicator + remaining time + streak */}
         <div className="hidden sm:flex items-center gap-2">
           <ProgressIndicator moduleIds={ALL_MODULE_IDS} variant="compact" />
           <RemainingTime />
+          <StreakBadge />
         </div>
 
         {/* Bookmarks + Completed + Achievements + Theme toggle + Settings */}

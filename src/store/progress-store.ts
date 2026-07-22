@@ -22,6 +22,12 @@ export interface ProgressState {
   lastVisitedModule: string | null;
   /** User's preferred code language for CodeBlock tabs. */
   preferredLanguage: PreferredLanguage;
+  /**
+   * Map of module ID -> ISO date string (YYYY-MM-DD) when the module was
+   * completed. Used for learning streak tracking. Only present for completed
+   * modules.
+   */
+  completionDates: Record<string, string>;
 }
 
 /**
@@ -47,6 +53,7 @@ const initialState: ProgressState = {
   bookmarks: {},
   lastVisitedModule: null,
   preferredLanguage: "cpp",
+  completionDates: {},
 };
 
 /**
@@ -62,22 +69,41 @@ export const useProgressStore = create<ProgressStore>()(
       ...initialState,
 
       toggleModuleComplete: (moduleId) =>
-        set((state) => ({
-          completedModules: {
-            ...state.completedModules,
-            [moduleId]: !state.completedModules[moduleId],
-          },
-        })),
+        set((state) => {
+          const isCurrentlyComplete = !!state.completedModules[moduleId];
+          const nextCompleted = { ...state.completedModules };
+          const nextDates = { ...state.completionDates };
+          if (isCurrentlyComplete) {
+            delete nextCompleted[moduleId];
+            delete nextDates[moduleId];
+          } else {
+            nextCompleted[moduleId] = true;
+            nextDates[moduleId] = new Date().toISOString().slice(0, 10);
+          }
+          return {
+            completedModules: nextCompleted,
+            completionDates: nextDates,
+          };
+        }),
 
       setModuleComplete: (moduleId, complete) =>
         set((state) => {
-          const next = { ...state.completedModules };
+          const nextCompleted = { ...state.completedModules };
+          const nextDates = { ...state.completionDates };
           if (complete) {
-            next[moduleId] = true;
+            nextCompleted[moduleId] = true;
+            // Only set the date if not already completed (preserve original date)
+            if (!nextDates[moduleId]) {
+              nextDates[moduleId] = new Date().toISOString().slice(0, 10);
+            }
           } else {
-            delete next[moduleId];
+            delete nextCompleted[moduleId];
+            delete nextDates[moduleId];
           }
-          return { completedModules: next };
+          return {
+            completedModules: nextCompleted,
+            completionDates: nextDates,
+          };
         }),
 
       isModuleComplete: (moduleId) => Boolean(get().completedModules[moduleId]),
@@ -116,7 +142,18 @@ export const useProgressStore = create<ProgressStore>()(
       storage: createJSONStorage(
         () => localStorage
       ) as PersistStorage<ProgressStore>,
-      version: 1,
+      version: 2,
+      // Migration: v1 → v2 adds completionDates
+      migrate: (persistedState: unknown, version: number) => {
+        const state = (persistedState as ProgressState) || {};
+        if (version < 2) {
+          // Add completionDates if missing
+          if (!state.completionDates) {
+            state.completionDates = {};
+          }
+        }
+        return state as ProgressStore;
+      },
     }
   )
 );

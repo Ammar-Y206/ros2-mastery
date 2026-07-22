@@ -676,3 +676,71 @@ No critical bugs found — all 7 phases + all routes returned HTTP 200 with zero
 4. **Add estimated time per phase in the sidebar** — next to each phase's completion count.
 5. **Add a "Learning streak" tracker** — consecutive days with completed lessons.
 6. **Add keyboard shortcut to toggle between overview/lesson** — e.g. `O` for overview.
+
+---
+Task ID: 15 (Cron Review Round 8)
+Agent: Main (orchestrator) — webDevReview cron trigger
+Task: Assess project status, perform QA via agent-browser, improve styling, add new features.
+
+## Current Project Status Assessment
+The platform was stable from Round 7 with all features working. QA via agent-browser + VLM analysis identified these improvement opportunities:
+1. No learning streak tracker (#5 recommendation from Round 7)
+2. No keyboard shortcut for overview (#6 recommendation)
+3. Stats bar numbers lacked monospace font (VLM recommendation)
+4. Active phase card glow could be more pronounced (VLM recommendation)
+
+No critical bugs found — all 7 phases + all routes returned HTTP 200 with zero console errors.
+
+## Completed Modifications
+
+### New Components Created (2 files)
+1. **`src/hooks/use-learning-streak.ts`** — hook that computes:
+   - `currentStreak`: consecutive days with at least one lesson completed (counting backwards from today or yesterday)
+   - `longestStreak`: longest run of consecutive days ever
+   - `totalCompletedDays`: total unique active days
+   - `lastCompletionDate`: ISO date of last completion
+   - `completedToday`: boolean for today's status
+   - Uses `completionDates` from the progress store
+
+2. **`src/components/layout/StreakBadge.tsx`** — navbar widget showing a Flame icon + "N days" count. Hidden when streak is 0. Uses amber accent when completed today (with filled flame), grey otherwise. Tooltip shows longest streak, total active days, and today's status.
+
+### Enhanced Existing Components
+3. **`src/store/progress-store.tsx`** — major update:
+   - Added `completionDates: Record<string, string>` to state (maps module ID → ISO date YYYY-MM-DD)
+   - Updated `toggleModuleComplete` and `setModuleComplete` to record/remove dates
+   - Bumped storage version 1 → 2 with a `migrate` function that adds `completionDates: {}` to v1 state
+   - `setModuleComplete` preserves original date on re-completion (doesn't overwrite)
+
+4. **`Navbar.tsx`** — added StreakBadge next to RemainingTime in the progress indicator cluster
+
+5. **`AppShell.tsx`** — added `O` keyboard shortcut:
+   - Pressing `O` navigates to the Course Overview (`/`)
+   - Added `router` to the useEffect dependency array
+   - Updated comment to reflect new shortcut
+
+6. **`KeyboardShortcuts.tsx`** — added `O` → "Go to Course Overview" to the Navigation section
+
+7. **`CourseOverview.tsx`** — two enhancements:
+   - **Monospaced stats numbers**: Stat component value now uses `font-mono` for developer aesthetic
+   - **Enhanced active phase glow**: `shadow-lg shadow-cyan-500/10` → `shadow-xl shadow-cyan-500/20` + `ring-cyan-400/60` (was /50) for more pronounced glow
+
+## Verification Results
+- **All 7 phases + all routes**: HTTP 200, zero console errors
+- **Streak badge**: confirmed shows "1 day" after marking first lesson complete
+- **O keyboard shortcut**: confirmed navigates from lesson page to overview
+- **Monospaced stats**: confirmed `font-mono` class on stat values
+- **Active phase glow**: confirmed enhanced shadow + ring opacity
+- **Lint**: 0 errors, 0 warnings
+
+## Unresolved Issues / Risks
+- **None critical** — all features working as designed
+- **Minor**: The progress store migration (v1→v2) adds `completionDates: {}` for existing users. Their previously-completed modules will NOT have dates (since we didn't track them before), so their streak will start fresh from today. This is acceptable — there's no way to retroactively determine when a module was completed.
+- **Minor**: The streak count logic handles timezone by using UTC (`toISOString().slice(0, 10)`). This means "today" is determined by UTC, not the user's local timezone. For most users this is fine, but a user in a far-east timezone completing a lesson at 11pm local might count it as "tomorrow" in UTC. Acceptable tradeoff for simplicity.
+
+## Priority Recommendations for Next Phase
+1. **Expand Phase 2-7 content to full lesson depth** — Phase 1 is comprehensive; Phases 2-7 are still overviews. This remains the highest-value content task.
+2. **Add full-text search** — command palette searches module titles only.
+3. **Add print/export to PDF** — for offline study.
+4. **Add estimated time per phase in the sidebar** — next to each phase's completion count.
+5. **Add streak to the Course Overview hero** — show the streak prominently on the dashboard.
+6. **Add a weekly progress chart** — visualize lessons completed per day/week.

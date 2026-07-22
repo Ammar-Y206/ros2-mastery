@@ -291,7 +291,9 @@ function Stat({
         <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/60">
           {label}
         </p>
-        <p className="text-sm font-bold text-foreground tabular-nums">{value}</p>
+        <p className="font-mono text-sm font-bold text-foreground tabular-nums">
+          {value}
+        </p>
       </div>
     </div>
   );
@@ -336,7 +338,7 @@ function PhaseCard({
       className={cn(
         "group relative flex h-full flex-col overflow-hidden rounded-xl border bg-card/40 p-5 text-left transition-all duration-300 hover:-translate-y-1 hover:shadow-2xl hover:shadow-cyan-500/10",
         accent.border,
-        isActive && "ring-2 ring-cyan-400/50 ring-offset-2 ring-offset-background shadow-lg shadow-cyan-500/10"
+        isActive && "ring-2 ring-cyan-400/60 ring-offset-2 ring-offset-background shadow-xl shadow-cyan-500/20"
       )}
     >
       {/* Active phase indicator */}

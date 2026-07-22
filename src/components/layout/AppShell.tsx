@@ -47,7 +47,7 @@ export function AppShell({ moduleId, children }: AppShellProps) {
     [router, searchParams]
   );
 
-  // Global keyboard shortcuts for lesson actions (M, B, T, Arrow keys)
+  // Global keyboard shortcuts for lesson actions (M, B, T, O, Arrow keys)
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement;
@@ -78,6 +78,10 @@ export function AppShell({ moduleId, children }: AppShellProps) {
       } else if (e.key.toLowerCase() === "t") {
         e.preventDefault();
         window.scrollTo({ top: 0, behavior: "smooth" });
+      } else if (e.key.toLowerCase() === "o") {
+        // Go to Course Overview
+        e.preventDefault();
+        router.push("/");
       } else if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
         // Navigate between lessons with arrow keys
         const adjacent = getAdjacentModules(moduleId);
@@ -92,7 +96,7 @@ export function AppShell({ moduleId, children }: AppShellProps) {
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [toggle, toggleBookmark, bookmarked, toast, moduleId, handleNavigate]);
+  }, [toggle, toggleBookmark, bookmarked, toast, moduleId, handleNavigate, router]);
 
   return (
     <div className="flex min-h-screen flex-col bg-background">
