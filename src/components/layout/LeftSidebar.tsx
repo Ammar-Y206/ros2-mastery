@@ -193,9 +193,16 @@ function PhaseItem({
                 {phase.subtitle}
               </span>
             </div>
-            <span className="shrink-0 text-[10px] font-mono text-sidebar-foreground/40 tabular-nums">
-              {completedCount}/{totalCount}
-            </span>
+            <div className="flex shrink-0 flex-col items-end gap-0.5">
+              <span className="text-[10px] font-mono text-sidebar-foreground/40 tabular-nums">
+                {completedCount}/{totalCount}
+              </span>
+              {estimatedMinutes > 0 && (
+                <span className="text-[9px] font-mono text-sidebar-foreground/30 tabular-nums">
+                  {estimatedMinutes}m
+                </span>
+              )}
+            </div>
           </button>
         </TooltipTrigger>
         <TooltipContent side="right" className="max-w-[260px]">

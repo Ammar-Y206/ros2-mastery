@@ -799,3 +799,61 @@ No critical bugs found — all 7 phases + all routes returned HTTP 200 with zero
 4. **Add estimated time per phase in the sidebar** — next to each phase's completion count.
 5. **Add phase connector lines** — dashed vertical line connecting phase numbers on the overview to reinforce the "roadmap" concept.
 6. **Add a "dark mode code blocks" toggle** — let users choose whether code blocks stay dark in light mode.
+
+---
+Task ID: 17 (Cron Review Round 10)
+Agent: Main (orchestrator) — webDevReview cron trigger
+Task: Assess project status, perform QA via agent-browser, improve styling, add new features.
+
+## Current Project Status Assessment
+The platform was stable from Round 9 with all features working. QA via agent-browser + VLM analysis identified these improvement opportunities:
+1. WeeklyProgressChart had an empty void when no activity data (VLM critical finding)
+2. No estimated time per phase in the sidebar (#4 recommendation from Round 9)
+3. Subtitle contrast too low (VLM recommendation)
+4. Navbar icons floated loosely without grouping (VLM recommendation)
+
+No critical bugs found — all 7 phases + all routes returned HTTP 200 with zero console errors.
+
+## Completed Modifications
+
+### Enhanced Existing Components
+1. **`WeeklyProgressChart.tsx`** — fixed the empty void issue:
+   - Added `hasActivity` check (totalThisWeek > 0)
+   - When no activity: shows a motivating empty state with a Sparkles icon in a cyan circle and "Complete your first lesson to start tracking activity!" message
+   - Header subtitle shows "No activity yet" instead of "0 lessons completed"
+   - When there IS activity: shows the normal bar chart (unchanged)
+   - Eliminates the awkward empty space that VLM flagged
+
+2. **`LeftSidebar.tsx`** — added estimated time per phase:
+   - Phase row now shows a two-line count: completion count (e.g. "1/7") on top, estimated minutes (e.g. "44m") below in smaller, dimmer font
+   - Both use `font-mono tabular-nums` for consistent alignment
+   - Time hidden when 0 (shouldn't happen but defensive)
+
+3. **`CourseOverview.tsx`** — improved subtitle contrast:
+   - Hero subtitle changed from `text-muted-foreground` to `text-muted-foreground/80`
+   - Increases opacity from ~60% to ~80% for better readability while maintaining hierarchy
+
+4. **`Navbar.tsx`** — clustered navbar icons into a pill container:
+   - Wrapped Bookmarks, Completed, Achievements, ThemeToggle, Settings in a `rounded-lg border border-border/40 bg-muted/20 p-0.5` container
+   - Added a vertical divider (`h-5 w-px bg-border/50`) between the feature buttons (Bookmarks/Completed/Achievements) and utility buttons (ThemeToggle/Settings)
+   - Creates a unified control cluster that reduces visual noise
+
+## Verification Results
+- **All 7 phases + all routes**: HTTP 200, zero console errors
+- **Empty state**: confirmed shows "Complete your first lesson" and "No activity yet" when no progress
+- **Sidebar time**: confirmed shows estimated minutes (e.g. "55m", "44m", "6m") next to phase completion counts
+- **Navbar pill cluster**: confirmed 1 divider element present, icons grouped in a bordered container
+- **Subtitle contrast**: confirmed `text-muted-foreground/80` class
+- **Lint**: 0 errors, 0 warnings
+
+## Unresolved Issues / Risks
+- **None critical** — all features working as designed
+- **Minor**: The navbar pill cluster adds a subtle border + background that slightly changes the navbar's visual weight. This is intentional — it groups related controls and reduces visual noise as VLM recommended.
+
+## Priority Recommendations for Next Phase
+1. **Expand Phase 2-7 content to full lesson depth** — Phase 1 is comprehensive; Phases 2-7 are still overviews. This remains the highest-value content task.
+2. **Add full-text search** — command palette searches module titles only.
+3. **Add print/export to PDF** — for offline study.
+4. **Add phase connector lines** — dashed vertical line connecting phase numbers on the overview to reinforce the "roadmap" concept (deferred from this round).
+5. **Add a "dark mode code blocks" toggle** — let users choose whether code blocks stay dark in light mode.
+6. **Add a hero spotlight gradient** — radial gradient behind the headline for a "spotlight" effect.

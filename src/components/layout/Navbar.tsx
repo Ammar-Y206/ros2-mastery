@@ -121,11 +121,12 @@ export function Navbar({ onToggleSidebar, onNavigate, activeModuleId }: NavbarPr
           <StreakBadge />
         </div>
 
-        {/* Bookmarks + Completed + Achievements + Theme toggle + Settings */}
-        <div className="flex items-center gap-0.5">
+        {/* Bookmarks + Completed + Achievements + Theme toggle + Settings — clustered in a pill */}
+        <div className="flex items-center gap-0.5 rounded-lg border border-border/40 bg-muted/20 p-0.5">
           <BookmarksButton onClick={() => router.push("/?view=bookmarks")} />
           <CompletedButton onClick={() => router.push("/?view=completed")} />
           <AchievementsButton onClick={() => router.push("/?view=achievements")} />
+          <div className="mx-0.5 h-5 w-px bg-border/50" aria-hidden="true" />
           <ThemeToggle />
           <SettingsDialog />
         </div>

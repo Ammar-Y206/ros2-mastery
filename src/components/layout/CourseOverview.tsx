@@ -138,7 +138,7 @@ export function CourseOverview({ onNavigate, onDismiss, onBookmarks, onAchieveme
               </span>
             </h1>
 
-            <p className="max-w-2xl text-balance text-base text-muted-foreground sm:text-lg">
+            <p className="max-w-2xl text-balance text-base text-muted-foreground/80 sm:text-lg">
               A modern, interactive learning platform for robotics engineers.
               Build the nervous system of autonomous robots — from Nodes and
               Topics to SLAM and Nav2.
