@@ -243,3 +243,85 @@ QA via agent-browser + VLM analysis identified these improvement opportunities:
 4. **Add a "Search results" page** — the command palette searches modules but doesn't search within content. Full-text search would be valuable.
 5. **Add social sharing** — a "Share this lesson" button with copyable URL.
 6. **Add print/export to PDF** — for offline study.
+
+---
+Task ID: 9 (Cron Review Round 2)
+Agent: Main (orchestrator) — webDevReview cron trigger
+Task: Assess project status, perform QA via agent-browser, improve styling, add new features.
+
+## Current Project Status Assessment
+The platform was in a stable state from Round 1 with all features working. QA via agent-browser + VLM analysis identified these improvement opportunities:
+1. Left sidebar too narrow (288px) → text truncation on module titles
+2. Callout boxes lacked visual depth (no glow/shadow)
+3. Right sidebar TOC had tight spacing and weak active-state styling
+4. No mobile sticky bottom navigation (users had to scroll to bottom to navigate)
+5. No "Continue where you left off" banner for returning users
+6. No estimated total time in phase tooltips
+7. Favicon was generic logo.svg; metadata lacked metadataBase, Twitter card, robots directives
+
+No critical bugs found — all 7 phases returned HTTP 200 with zero console errors.
+
+## Completed Modifications
+
+### New Components Created (2 files)
+1. **`src/components/layout/MobileBottomNav.tsx`** — sticky bottom action bar visible only on mobile (below lg breakpoint). Contains Prev (chevron-left), Mark Complete (full-width center button with circle/check icon), and Next (chevron-right) buttons. Uses iOS safe-area-inset-bottom padding. Buttons have active:scale-95 press animation. Disabled state for first/last module.
+
+2. **`src/components/layout/ContinueBanner.tsx`** — dismissible banner shown at the top of the content area when the user has previously visited a DIFFERENT module. Shows "Continue where you left off" with module title, phase badge, reading time, and a "Resume" CTA button. Uses the `useProgressHydrated` hook to avoid SSR flash. Dismissible via X button (local state).
+
+### Enhanced Existing Components
+3. **`LeftSidebar.tsx`**:
+   - Widened sidebar from `w-72` (288px) → `w-80` (320px) to reduce text truncation
+   - Phase badges: enhanced with `shadow-sm` + `transition-all`, emerald state now uses `bg-emerald-500/15 text-emerald-300` (better contrast)
+   - Phase tooltips: now show estimated total time ("· 44 min total") alongside completion count
+   - Completion counts use `tabular-nums` for consistent digit width
+
+4. **`RightSidebar.tsx`**:
+   - TOC list spacing: `space-y-1` → `space-y-0.5`, `py-1` → `py-1.5` for more vertical breathing room
+   - Active state: H2 items now `font-medium`, active item uses `text-primary` (was `font-medium text-primary`)
+   - Non-active items: slightly dimmer (`text-muted-foreground/60` vs `/70`) for better active/inactive contrast
+
+5. **`Callout.tsx`**:
+   - Added subtle colored glow `boxShadow` to all 4 callout types (why=emerald, how=cyan, best-practice=violet, pitfall=rose) — "0 0 20px rgba(color, 0.08)"
+   - Pitfall glow intensified: "0 0 28px rgba(244,63,94,0.20)" (was 0.18)
+   - Title margin: `mb-1` → `mb-1.5` for more breathing room
+   - Inline code inside callouts: now matches the global cyan-tinted styling (was grey `bg-muted`)
+
+6. **`AppShell.tsx`**:
+   - Integrated `MobileBottomNav` component
+   - Added `h-16 lg:hidden` spacer div at the bottom of main content so content isn't hidden behind the mobile bottom nav
+
+7. **`layout.tsx`** (metadata):
+   - Added `metadataBase: new URL("https://ros2-mastery.dev")` to fix OG image warning
+   - Added title template `"%s · ROS2 Mastery"` for future per-page titles
+   - Added `creator`, `twitter` card, `robots` directives
+   - Added `siteName` and OG `images` array
+   - Added more keywords (URDF, EKF, robot localization)
+
+8. **`public/favicon.svg`** — new custom ROS2-branded favicon:
+   - Rounded square dark background with cyan→teal gradient border
+   - Stylized "R" letter with glow filter
+   - Node connection dots + dashed lines representing the ROS computation graph
+   - Updated layout.tsx to reference `/favicon.svg` instead of `/logo.svg`
+
+## Verification Results
+- **All 7 phases**: HTTP 200, zero console errors, zero page errors
+- **Sidebar width**: confirmed 320px (was 288px)
+- **Callout glow**: confirmed `boxShadow` includes `rgba` on all callout types (18 callouts on Phase 1)
+- **Mobile bottom nav**: confirmed present on 375px viewport (1 element matching `.fixed.bottom-0.left-0.right-0.z-30`)
+- **ContinueBanner**: confirmed appears when lastVisited ≠ currentModule ("Continue where you left off" text found)
+- **Phase tooltip with time**: confirmed "44 min total" shown in tooltip on hover
+- **Lint**: 0 errors, 0 warnings
+- **VLM analysis**: confirmed "distinct neon glow" on callouts, "excellent contrast" on phase badges, wider sidebar reduces truncation
+
+## Unresolved Issues / Risks
+- **None critical** — all features working as designed
+- **Minor**: Some long module titles still truncate in the sidebar even at 320px (e.g. "ROS 2 Development Lifecycle"). This is inherent to the design — tooltips compensate by showing the full title on hover.
+- **Minor**: The ContinueBanner appears on every navigation to a different module until dismissed. Could be enhanced to only show once per session, but current behavior is acceptable.
+
+## Priority Recommendations for Next Phase
+1. **Expand Phase 2-7 content to full lesson depth** — Phase 1 is comprehensive; Phases 2-7 are overviews. This is the highest-value content task.
+2. **Add a course overview/dashboard** — a visual landing page with phase cards, overall progress, and "Continue" CTA.
+3. **Add dark/light theme toggle** — currently dark-only.
+4. **Add full-text search** — command palette searches module titles only; searching within content would be valuable.
+5. **Add print/export to PDF** — for offline study.
+6. **Add social sharing** — "Share this lesson" with copyable URL.

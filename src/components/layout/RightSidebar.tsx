@@ -103,18 +103,18 @@ export function RightSidebar({
           {toc.length === 0 ? (
             <p className="text-xs text-muted-foreground/60">Loading...</p>
           ) : (
-            <ul className="space-y-1 border-l border-border/60">
+            <ul className="space-y-0.5 border-l border-border/60">
               {toc.map((item) => (
                 <li key={item.id}>
                   <button
                     onClick={() => scrollTo(item.id)}
                     className={cn(
-                      "-ml-px block w-full border-l-2 py-1 text-left text-[13px] leading-snug transition-colors",
+                      "-ml-px block w-full border-l-2 py-1.5 text-left text-[13px] leading-snug transition-colors",
                       item.level === 3 && "pl-6",
-                      item.level === 2 && "pl-3",
+                      item.level === 2 && "pl-3 font-medium",
                       activeId === item.id
-                        ? "border-primary font-medium text-primary"
-                        : "border-transparent text-muted-foreground/70 hover:border-border hover:text-foreground"
+                        ? "border-primary text-primary"
+                        : "border-transparent text-muted-foreground/60 hover:border-border hover:text-foreground"
                     )}
                   >
                     {item.text}

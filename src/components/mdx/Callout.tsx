@@ -40,6 +40,7 @@ const CALLOUT_CONFIG: Record<CalloutType, CalloutConfig> = {
       // emerald-500 #10b981
       borderLeftColor: "#10b981",
       backgroundColor: "rgba(16, 185, 129, 0.06)",
+      boxShadow: "0 0 20px rgba(16, 185, 129, 0.08)",
     },
     containerClass:
       "border border-l-4 border-l-emerald-500 border-emerald-500/20",
@@ -54,6 +55,7 @@ const CALLOUT_CONFIG: Record<CalloutType, CalloutConfig> = {
       // cyan-500 #06b6d4
       borderLeftColor: "#06b6d4",
       backgroundColor: "rgba(6, 182, 212, 0.06)",
+      boxShadow: "0 0 20px rgba(6, 182, 212, 0.08)",
     },
     containerClass: "border border-l-4 border-l-cyan-500 border-cyan-500/20",
     iconWrapperClass: "bg-cyan-500/10 text-cyan-300 ring-1 ring-cyan-500/30",
@@ -66,6 +68,7 @@ const CALLOUT_CONFIG: Record<CalloutType, CalloutConfig> = {
       // violet-500 #8b5cf6
       borderLeftColor: "#8b5cf6",
       backgroundColor: "rgba(139, 92, 246, 0.06)",
+      boxShadow: "0 0 20px rgba(139, 92, 246, 0.08)",
     },
     containerClass:
       "border border-l-4 border-l-violet-500 border-violet-500/20",
@@ -82,7 +85,7 @@ const CALLOUT_CONFIG: Record<CalloutType, CalloutConfig> = {
       backgroundColor: "rgba(244, 63, 94, 0.06)",
       // subtle red glow
       boxShadow:
-        "0 0 0 1px rgba(244,63,94,0.25), 0 0 24px rgba(244,63,94,0.18)",
+        "0 0 0 1px rgba(244,63,94,0.25), 0 0 28px rgba(244,63,94,0.20)",
     },
     containerClass: "border border-l-4 border-l-rose-500 border-rose-500/20",
     iconWrapperClass: "bg-rose-500/10 text-rose-400 ring-1 ring-rose-500/40",
@@ -127,7 +130,7 @@ export function Callout({
         <Icon className="size-4 sm:size-[18px]" />
       </div>
       <div className="min-w-0 flex-1">
-        <div className="mb-1 flex items-center gap-2">
+        <div className="mb-1.5 flex items-center gap-2">
           <span
             className={cn(
               "text-sm font-bold uppercase tracking-wide",
@@ -137,7 +140,7 @@ export function Callout({
             {resolvedTitle}
           </span>
         </div>
-        <div className="text-sm leading-relaxed text-muted-foreground [&>p]:my-0 [&>p:last-child]:mb-0 [&>p:first-child]:mt-0 [&_code]:rounded [&_code]:bg-muted [&_code]:px-1.5 [&_code]:py-0.5 [&_code]:font-mono [&_code]:text-[0.85em] [&_code]:text-accent-foreground">
+        <div className="text-sm leading-relaxed text-muted-foreground [&>p]:my-0 [&>p:last-child]:mb-0 [&>p:first-child]:mt-0 [&_code]:rounded-md [&_code]:border [&_code]:border-cyan-500/20 [&_code]:bg-cyan-500/10 [&_code]:px-1.5 [&_code]:py-0.5 [&_code]:font-mono [&_code]:text-[0.85em] [&_code]:text-cyan-200">
           {children}
         </div>
       </div>

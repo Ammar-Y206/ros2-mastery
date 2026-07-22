@@ -77,7 +77,7 @@ export function LeftSidebar({
       <TooltipProvider delayDuration={400}>
         <aside
           className={cn(
-            "fixed lg:sticky top-14 z-30 h-[calc(100vh-3.5rem)] w-72 shrink-0 border-r border-border/60 bg-sidebar/95 backdrop-blur-xl transition-transform duration-300 lg:translate-x-0",
+            "fixed lg:sticky top-14 z-30 h-[calc(100vh-3.5rem)] w-80 shrink-0 border-r border-border/60 bg-sidebar/95 backdrop-blur-xl transition-transform duration-300 lg:translate-x-0",
             mobileOpen ? "translate-x-0" : "-translate-x-full"
           )}
         >
@@ -143,6 +143,10 @@ function PhaseItem({
   ).length;
   const totalCount = phase.modules.length;
   const allDone = completedCount === totalCount;
+  const estimatedMinutes = phase.modules.reduce(
+    (sum, m) => sum + (m.readingTime ?? 0),
+    0
+  );
 
   const isActive = phase.modules.some((m) => m.id === activeModuleId);
 
@@ -168,10 +172,10 @@ function PhaseItem({
             />
             <span
               className={cn(
-                "flex h-7 w-7 shrink-0 items-center justify-center rounded-md border text-xs font-bold transition-colors",
+                "flex h-7 w-7 shrink-0 items-center justify-center rounded-md border text-xs font-bold transition-all",
                 allDone
-                  ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-400"
-                  : cn(accent.border, accent.bg, accent.text)
+                  ? "border-emerald-500/50 bg-emerald-500/15 text-emerald-300 shadow-sm shadow-emerald-500/20"
+                  : cn(accent.border, accent.bg, accent.text, "shadow-sm")
               )}
             >
               {allDone ? <Check className="h-3.5 w-3.5" /> : phase.number}
@@ -189,17 +193,24 @@ function PhaseItem({
                 {phase.subtitle}
               </span>
             </div>
-            <span className="shrink-0 text-[10px] font-mono text-sidebar-foreground/40">
+            <span className="shrink-0 text-[10px] font-mono text-sidebar-foreground/40 tabular-nums">
               {completedCount}/{totalCount}
             </span>
           </button>
         </TooltipTrigger>
-        <TooltipContent side="right" className="max-w-[240px]">
+        <TooltipContent side="right" className="max-w-[260px]">
           <p className="font-semibold">{phase.title}</p>
           <p className="text-xs text-muted-foreground">{phase.subtitle}</p>
-          <p className="mt-1 text-xs text-cyan-400">
-            {completedCount}/{totalCount} completed
-          </p>
+          <div className="mt-1.5 flex items-center gap-3 text-xs">
+            <span className="text-cyan-400">
+              {completedCount}/{totalCount} completed
+            </span>
+            {estimatedMinutes > 0 && (
+              <span className="text-muted-foreground">
+                · {estimatedMinutes} min total
+              </span>
+            )}
+          </div>
         </TooltipContent>
       </Tooltip>
 

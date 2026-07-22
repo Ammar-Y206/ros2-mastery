@@ -10,6 +10,7 @@ import { ReadingProgressBar } from "@/components/layout/ReadingProgressBar";
 import { BackToTop } from "@/components/layout/BackToTop";
 import { KeyboardShortcuts } from "@/components/layout/KeyboardShortcuts";
 import { CompletionCelebration } from "@/components/layout/CompletionCelebration";
+import { MobileBottomNav } from "@/components/layout/MobileBottomNav";
 import { useModuleProgress } from "@/hooks/use-progress";
 import { useToast } from "@/hooks/use-toast";
 
@@ -107,6 +108,8 @@ export function AppShell({ moduleId, children }: AppShellProps) {
             </div>
             <RightSidebar moduleId={moduleId} />
           </div>
+          {/* Bottom padding on mobile so content isn't hidden behind MobileBottomNav */}
+          <div className="h-16 lg:hidden" aria-hidden="true" />
         </main>
       </div>
 
@@ -130,6 +133,7 @@ export function AppShell({ moduleId, children }: AppShellProps) {
       <BackToTop />
       <KeyboardShortcuts />
       <CompletionCelebration moduleId={moduleId} onNavigate={handleNavigate} />
+      <MobileBottomNav moduleId={moduleId} onNavigate={handleNavigate} />
     </div>
   );
 }

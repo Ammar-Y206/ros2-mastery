@@ -11,6 +11,7 @@ import {
   ACCENT_CLASSES,
 } from "@/lib/course-data";
 import { useModuleProgress, useProgressStore } from "@/hooks/use-progress";
+import { ContinueBanner } from "@/components/layout/ContinueBanner";
 
 interface DocContentProps {
   moduleId: string;
@@ -70,6 +71,9 @@ export function DocContent({ moduleId, onNavigate, children }: DocContentProps) 
 
   return (
     <div className="mx-auto w-full max-w-3xl px-5 py-8 lg:px-10 lg:py-10">
+      {/* Continue where you left off banner */}
+      <ContinueBanner moduleId={moduleId} onNavigate={onNavigate} />
+
       {/* Phase / module breadcrumb header */}
       <div className="mb-6">
         <div className="mb-3 flex flex-wrap items-center gap-2 text-xs">
