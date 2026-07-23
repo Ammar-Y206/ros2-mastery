@@ -11,178 +11,846 @@
 ---
 
 ## Parameters — Dynamic Configuration
-### The "Why" & The "How" (Distributed Parameters)
 
-Parameters are the **runtime configuration knobs** of a node. Instead of hardcoding values like `max_velocity = 2.5` in source code (requiring a recompile to change), you expose them as parameters. They can be set via YAML files, the CLI, or other nodes — and with *dynamic parameters*, the node reconfigures itself live without restarting.
+### The "Why" & The "How"
 
-<Callout type="how" title="The How — Parameter Types">
-ROS 2 parameters support: `bool`, `int64`, `float64`, `string`, `byte[]`, and arrays of each. Every parameter has a **descriptor** specifying type, description, constraints (min/max), and whether it's read-only or dynamic.
-</Callout>
+Parameters are configuration values associated with a node. Instead of writing a "Front Left Motor Node" and a "Rear Right Motor Node," you write one "Motor Node" and pass it a parameter indicating its physical location and max speed at startup.
 
-<CodeBlock
-  title="src/dynamic_param_node.cpp"
-  cpp={`#include "rclcpp/rclcpp.hpp"
+In ROS 2, there is **no central Parameter Server** (unlike ROS 1). Every single node is its own parameter server. When you change a parameter from the terminal, you are actually making a hidden Service call to that specific node's `~/set_parameters` interface.
 
-class TunableNode : public rclcpp::Node {
+**Click the nodes in the graph below to understand how parameters flow between the CLI, the node, and the callback:**
+
+<InteractiveGraph
+  title="The Parameter Architecture — Click any node to explore"
+  height={360}
+  nodes={[
+    {
+      id: "cli",
+      label: "CLI Terminal",
+      subtitle: "ros2 param set",
+      icon: "TerminalSquare",
+      accent: "cyan",
+      position: { x: 50, y: 130 },
+      description: "The engineer types 'ros2 param set /pid_controller kp 1.5' in the terminal. This command is actually a hidden Service call over the DDS network to the node's ~/set_parameters interface. It's not a file edit — it's a live network request.",
+    },
+    {
+      id: "node",
+      label: "PID Controller Node",
+      subtitle: "Parameter Server",
+      icon: "Cog",
+      accent: "violet",
+      position: { x: 400, y: 130 },
+      description: "The PID Controller Node is its own parameter server. When it starts, it declares parameters (kp, ki, kd) with default values. When it receives a set_parameter request, it fires the parameter callback, which can validate the new value and update the node's internal math — all without restarting.",
+    },
+    {
+      id: "callback",
+      label: "Param Callback",
+      subtitle: "Dynamic Update",
+      icon: "RefreshCw",
+      accent: "emerald",
+      position: { x: 750, y: 50 },
+      description: "The add_on_set_parameters_callback fires every time a parameter changes. It receives the new value, can run safety checks (e.g., reject negative kp), and updates the node's internal variables. If the callback returns successful=false, the CLI rejects the change and the node keeps the old value.",
+    },
+    {
+      id: "yaml",
+      label: "YAML Config",
+      subtitle: "Bulk Loading",
+      icon: "FileText",
+      accent: "amber",
+      position: { x: 750, y: 210 },
+      description: "For hundreds of parameters, you use a YAML file loaded at startup via --ros-args --params-file. The YAML is namespaced under the node name (e.g., pid_controller:). This allows different deployments (simulation vs real hardware) to use different config files without changing code.",
+    },
+  ]}
+  edges={[
+    {
+      id: "e1",
+      source: "cli",
+      target: "node",
+      label: "set_parameter (Service)",
+      animated: true,
+    },
+    {
+      id: "e2",
+      source: "node",
+      target: "callback",
+      label: "fires callback",
+      animated: true,
+    },
+    {
+      id: "e3",
+      source: "yaml",
+      target: "node",
+      label: "loads at boot",
+      animated: false,
+    },
+  ]}
+/>
+
+### Real-world Use Cases
+
+- **PID Tuning:** Adjusting Proportional, Integral, and Derivative gains while the robot is actively driving.
+- **Hardware Configuration:** Setting the camera resolution (e.g., 720p vs 1080p) or LiDAR rotation frequency based on the specific environment.
+- **Debug Toggles:** Toggling a boolean `publish_debug_images` parameter. When true, the node publishes heavy, annotated images for RViz. When false, it saves CPU cycles during operation.
+
+---
+
+### Implementation — Dynamic Parameters
+
+We will build a **PidControllerNode**. It declares three parameters (kp, ki, kd) and implements a Parameter Event Callback so that if an engineer changes the gains from the terminal, the node instantly updates its internal math without restarting.
+
+**Build the PID Controller step by step:**
+
+<StepByStepCode
+  title="src/pid_controller_node.cpp"
+  description="The PidControllerNode — declares kp/ki/kd parameters and a dynamic callback that updates them live. Built in 3 steps."
+  steps={[
+    {
+      title: "Step 1: Declare Parameters & Fetch Defaults",
+      explanation: "In ROS 2 Humble, you MUST declare a parameter before you can use or set it. We declare kp=1.0, ki=0.0, kd=0.1 with their default values, then fetch them into class variables. If you try to get_parameter without declaring first, the node crashes with an exception.",
+      cpp: `#include <memory>
+#include <vector>
+#include "rclcpp/rclcpp.hpp"
+#include "rcl_interfaces/msg/set_parameters_result.hpp"
+
+class PidControllerNode : public rclcpp::Node
+{
 public:
-  TunableNode() : Node("tunable_node") {
-    // Declare a dynamic parameter with a default and description
-    this->declare_parameter<double>("max_velocity", 2.5);
-    auto desc = rcl_interfaces::msg::ParameterDescriptor();
-    desc.description = "Maximum allowed linear velocity (m/s)";
-    desc.dynamic_typing = false;
+  PidControllerNode() : Node("pid_controller")
+  {
+    // 1. Declare the parameters and their default values
+    this->declare_parameter("kp", 1.0);
+    this->declare_parameter("ki", 0.0);
+    this->declare_parameter("kd", 0.1);
 
-    // Register a callback that fires whenever the param changes
-    param_cb_ = this->add_on_set_parameters_callback(
-      [this](const std::vector<rclcpp::Parameter> & params) {
-        auto result = rcl_interfaces::msg::SetParametersResult();
-        result.successful = true;
-        for (const auto & p : params) {
-          if (p.get_name() == "max_velocity") {
-            double v = p.as_double();
-            if (v < 0.0 || v > 10.0) {
-              result.successful = false;
-              result.reason = "max_velocity must be in [0.0, 10.0]";
-              return result;
-            }
-            RCLCPP_INFO(this->get_logger(), "max_velocity updated -> %.2f", v);
-          }
-        }
-        return result;
-      });
+    // 2. Fetch the initial values into class variables
+    kp_ = this->get_parameter("kp").as_double();
+    ki_ = this->get_parameter("ki").as_double();
+    kd_ = this->get_parameter("kd").as_double();
+
+    RCLCPP_INFO(this->get_logger(),
+      "PID Initialized with Kp: %.2f, Ki: %.2f, Kd: %.2f", kp_, ki_, kd_);
+
+    // Callback registration (Step 2)
   }
-private:
-  rclcpp::node_interfaces::OnSetParametersCallbackHandle::SharedPtr param_cb_;
-};
 
-int main(int argc, char ** argv) {
-  rclcpp::init(argc, argv);
-  rclcpp::spin(std::make_shared<TunableNode>());
-  rclcpp::shutdown();
-}`}
-  python={`import rclpy
+private:
+  double kp_, ki_, kd_;
+  // Callback handle (Step 2)
+};`,
+      python: `import rclpy
 from rclpy.node import Node
 from rcl_interfaces.msg import SetParametersResult
 
-class TunableNode(Node):
+class PidControllerNode(Node):
     def __init__(self):
-        super().__init__('tunable_node')
-        # Declare a parameter with a default
-        self.declare_parameter('max_velocity', 2.5)
+        super().__init__('pid_controller')
 
-        # Register a callback that fires whenever the param changes
-        self.add_on_set_parameters_callback(self._on_param_change)
+        # 1. Declare the parameters and their default values
+        self.declare_parameter('kp', 1.0)
+        self.declare_parameter('ki', 0.0)
+        self.declare_parameter('kd', 0.1)
 
-    def _on_param_change(self, params):
+        # 2. Fetch the initial values
+        self.kp_ = self.get_parameter('kp').value
+        self.ki_ = self.get_parameter('ki').value
+        self.kd_ = self.get_parameter('kd').value
+
+        self.get_logger().info(
+            f'PID Initialized with Kp: {self.kp_:.2f}, '
+            f'Ki: {self.ki_:.2f}, Kd: {self.kd_:.2f}')
+
+        # Callback registration (Step 2)`,
+    },
+    {
+      title: "Step 2: Register the Dynamic Parameter Callback",
+      explanation: "THE CRITICAL STEP: We call add_on_set_parameters_callback and pass our callback function. This tells the Executor: 'If anyone modifies a parameter via CLI, run this function.' We MUST store the result in a class member variable (param_subscriber_), or the shared pointer will be destroyed when the constructor finishes and the callback will silently detach.",
+      cpp: `class PidControllerNode : public rclcpp::Node
+{
+public:
+  PidControllerNode() : Node("pid_controller")
+  {
+    this->declare_parameter("kp", 1.0);
+    this->declare_parameter("ki", 0.0);
+    this->declare_parameter("kd", 0.1);
+    kp_ = this->get_parameter("kp").as_double();
+    ki_ = this->get_parameter("ki").as_double();
+    kd_ = this->get_parameter("kd").as_double();
+
+    // 3. THE CRITICAL STEP: Register the Dynamic Parameter Callback
+    param_subscriber_ = this->add_on_set_parameters_callback(
+      std::bind(&PidControllerNode::param_callback, this,
+        std::placeholders::_1));
+  }
+
+private:
+  double kp_, ki_, kd_;
+  // MUST store the handle or the callback silently detaches!
+  rclcpp::node_interfaces::OnSetParametersCallbackHandle::SharedPtr
+    param_subscriber_;
+
+  // The callback function (Step 3)
+};`,
+      python: `class PidControllerNode(Node):
+    def __init__(self):
+        super().__init__('pid_controller')
+        self.declare_parameter('kp', 1.0)
+        self.declare_parameter('ki', 0.0)
+        self.declare_parameter('kd', 0.1)
+        self.kp_ = self.get_parameter('kp').value
+        self.ki_ = self.get_parameter('ki').value
+        self.kd_ = self.get_parameter('kd').value
+
+        # 3. THE CRITICAL STEP: Register the Dynamic Parameter Callback
+        self.add_on_set_parameters_callback(self.param_callback)
+
+    # The callback function (Step 3)`,
+    },
+    {
+      title: "Step 3: The Callback (Safety Checks + Live Update) + main()",
+      explanation: "The callback receives a vector of changed parameters. For each one, we check its name, run a safety check (reject negative kp!), and update the class variable. We return a SetParametersResult with successful=true to tell the CLI the change was accepted. If we return successful=false, the CLI prints 'Setting parameter failed' and the node keeps the old value. This is your safety net against bad data.",
+      cpp: `class PidControllerNode : public rclcpp::Node
+{
+  // ... Steps 1 & 2 ...
+
+  // 4. The Parameter Callback Function
+  rcl_interfaces::msg::SetParametersResult param_callback(
+    const std::vector<rclcpp::Parameter> & params)
+  {
+    rcl_interfaces::msg::SetParametersResult result;
+    result.successful = true;
+    result.reason = "Success";
+
+    for (const auto & param : params) {
+      if (param.get_name() == "kp") {
+        // Safety Check: Reject invalid values!
+        if (param.as_double() < 0.0) {
+          result.successful = false;
+          result.reason = "Kp cannot be negative!";
+          return result;
+        }
+        kp_ = param.as_double();
+        RCLCPP_INFO(this->get_logger(),
+          "Dynamically updated Kp to: %.2f", kp_);
+      }
+      else if (param.get_name() == "ki") {
+        ki_ = param.as_double();
+      }
+      else if (param.get_name() == "kd") {
+        kd_ = param.as_double();
+      }
+    }
+    return result;
+  }
+};
+
+int main(int argc, char **argv) {
+  rclcpp::init(argc, argv);
+  rclpy::spin(std::make_shared<PidControllerNode>());
+  rclcpp::shutdown();
+  return 0;
+}`,
+      python: `class PidControllerNode(Node):
+    # ... Steps 1 & 2 ...
+
+    # 4. The Parameter Callback Function
+    def param_callback(self, params):
         result = SetParametersResult()
         result.successful = True
-        for p in params:
-            if p.name == 'max_velocity':
-                v = float(p.value)
-                if not (0.0 <= v <= 10.0):
+        result.reason = 'Success'
+
+        for param in params:
+            if param.name == 'kp':
+                # Safety Check: Reject invalid values!
+                if param.value < 0.0:
                     result.successful = False
-                    result.reason = 'max_velocity must be in [0.0, 10.0]'
+                    result.reason = 'Kp cannot be negative!'
                     return result
-                self.get_logger().info(f'max_velocity updated -> {v:.2f}')
+                self.kp_ = param.value
+                self.get_logger().info(
+                    f'Dynamically updated Kp to: {self.kp_:.2f}')
+            elif param.name == 'ki':
+                self.ki_ = param.value
+            elif param.name == 'kd':
+                self.kd_ = param.value
+
         return result
 
 def main(args=None):
     rclpy.init(args=args)
-    rclpy.spin(TunableNode())
-    rclpy.shutdown()`}
+    node = PidControllerNode()
+    rclpy.spin(node)
+    node.destroy_node()
+    rclpy.shutdown()
+
+if __name__ == '__main__':
+    main()`,
+    },
+  ]}
 />
 
-<TerminalBlock title="bash">
-{`# Inspect and mutate parameters live
-ros2 param list /tunable_node
-ros2 param get /tunable_node max_velocity
-ros2 param set /tunable_node max_velocity 3.8
-ros2 param dump /tunable_node > params.yaml`}
-</TerminalBlock>
+### Bulk Loading — YAML Configurations
 
-<Callout type="pitfall" title="CRITICAL Pitfall — No Validation Callback">
-If you change a parameter without a validation callback, an out-of-range value silently corrupts your control loop. **Always register an `add_on_set_parameters_callback`** that validates ranges and rejects invalid values with `result.successful = false`.
+When your autonomous stack grows, you will have hundreds of parameters. You cannot set these one-by-one in the terminal. You use a YAML file namespaced under the exact node name:
+
+<Callout type="how" title="The How — YAML Bulk Loading">
+```yaml
+# pid_config.yaml
+pid_controller:
+  ros__parameters:
+    kp: 2.5
+    ki: 0.1
+    kd: 0.05
+    max_steering_angle: 0.35
+```
+
+Inject the YAML at startup:
+```bash
+ros2 run my_control_pkg pid_controller_node --ros-args --params-file ./pid_config.yaml
+```
+</Callout>
+
+### Critical Parameter Pitfalls
+
+<Callout type="pitfall" title="CRITICAL Pitfall — The 'Parameter Not Declared' Exception">
+In ROS 2 Humble, if you try to run `this->get_parameter("max_speed")` without calling `this->declare_parameter("max_speed")` first, the node will **instantly crash** with an exception. Always declare your parameters before using them.
+</Callout>
+
+<Callout type="pitfall" title="CRITICAL Pitfall — Dangling Callback Pointers (C++ Memory Leak)">
+If you do not store the result of `add_on_set_parameters_callback` into a class member variable (like `param_subscriber_`), the shared pointer will be destroyed as soon as the constructor finishes. The callback will **silently detach**, and your dynamic updates will magically stop working with no error message.
+</Callout>
+
+<Callout type="best-practice" title="Best Practice — Rejecting Bad Data (The Safety Net)">
+The `SetParametersResult` is not just a formality. If an engineer types `ros2 param set /pid_controller kp -5.0`, your node must catch that negative value and return `successful = false`. The CLI will literally reject the engineer's command on the terminal screen, and the robot remains safe.
+</Callout>
+
+---
+
+### Inspecting and Mutating Parameters — CLI Tools
+
+During live testing, the vehicle's behavior is a physical manifestation of its internal math. When the robot understeers, the team needs to surgically alter the steering gains without halting the system.
+
+**Try the parameter CLI commands in the terminal below. Type `ros2 param list` to see what parameters the PID node exposes:**
+
+<SimulatedTerminal
+  title="ROS 2 Parameter Inspector"
+  welcomeMessage={[
+    "ROS 2 Humble — Parameter Management Terminal",
+    "The PID Controller node is running. Try 'ros2 param list' to see its parameters.",
+  ]}
+  hintCommands={[
+    "ros2 param list",
+    "ros2 param get /pid_controller kp",
+    "ros2 param set /pid_controller kp 1.5",
+    "ros2 param set /pid_controller kp -2.0",
+    "ros2 param dump /pid_controller",
+  ]}
+  commands={[
+    {
+      command: "ros2 param list",
+      description: "Audit: list all parameters a node exposes",
+      output: [
+        "/pid_controller:",
+        "  kp",
+        "  ki",
+        "  kd",
+        "  use_sim_time",
+        "  qos_overriding_options",
+      ],
+    },
+    {
+      command: "ros2 param list /pid_controller",
+      description: "List parameters for a specific node",
+      output: [
+        "/pid_controller:",
+        "  kp",
+        "  ki",
+        "  kd",
+        "  use_sim_time",
+      ],
+    },
+    {
+      command: "ros2 param get /pid_controller kp",
+      description: "Probe: read the current value of a parameter",
+      output: [
+        "Double value is: 1.0",
+      ],
+    },
+    {
+      command: "ros2 param get /pid_controller ki",
+      description: "Read the ki value",
+      output: [
+        "Double value is: 0.0",
+      ],
+    },
+    {
+      command: "ros2 param set /pid_controller kp 1.5",
+      description: "Mutation: change a parameter value live (triggers callback)",
+      output: [
+        "Set parameter successful",
+      ],
+    },
+    {
+      command: "ros2 param set /pid_controller kp -2.0",
+      description: "Try to set a negative value (safety check rejects it!)",
+      output: [
+        "Setting parameter failed: Kp cannot be negative!",
+      ],
+    },
+    {
+      command: "ros2 param get /pid_controller kp",
+      description: "Verify the value didn't change after rejection",
+      output: [
+        "Double value is: 1.5",
+      ],
+    },
+    {
+      command: "ros2 param dump /pid_controller",
+      description: "Save-State: dump live parameters to a YAML file",
+      output: [
+        "/pid_controller:",
+        "  ros__parameters:",
+        "    kp: 1.5",
+        "    ki: 0.0",
+        "    kd: 0.1",
+        "    use_sim_time: false",
+      ],
+    },
+    {
+      command: "ros2 param set /pid_controller ki 0.05",
+      description: "Tune the integral gain",
+      output: [
+        "Set parameter successful",
+      ],
+    },
+    {
+      command: "ros2 param set /pid_controller kd 0.02",
+      description: "Tune the derivative gain",
+      output: [
+        "Set parameter successful",
+      ],
+    },
+  ]}
+/>
+
+<Callout type="best-practice" title="Best Practice — The Save-State (ros2 param dump)">
+After 45 minutes of grueling track testing, your robot is driving perfectly. You manually tuned kp, ki, and kd via the terminal. But the moment you hit Ctrl+C, those perfectly tuned variables **vanish from RAM**. You must `ros2 param dump` them to a file before shutdown so you can load them on the next boot.
 </Callout>
 
 ---
 
 ## The Launch System
-### Implementation: The Python Launch File
 
-Launch files replace the chaos of opening 15 terminals with `ros2 run`. A single `ros2 launch` command brings up the entire stack — with deterministic ordering, parameter loading, and remapping.
+### The "Why" & The "How"
 
-<CodeBlock
-  title="launch/bringup.launch.py"
-  language="python"
->{`from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, GroupAction
-from launch.substitutions import LaunchConfiguration
+A production autonomous stack consists of dozens of nodes: LiDAR drivers, camera drivers, IMU filters, localization algorithms, local planners, global planners, and motor controllers. Opening 50 terminals and typing `ros2 run ... --ros-args --params-file ...` is impossible. We need a deterministic, repeatable way to bring up the entire system with a single command.
+
+In ROS 2, the Launch system is written entirely in **Python**. Because launch files are Python scripts, they are Turing-complete — you can use if/else logic, read environment variables, and conditionally launch different nodes based on hardware.
+
+**Click the nodes in the graph below to see how the Master Launch File orchestrates multiple subsystems:**
+
+<InteractiveGraph
+  title="The Launch Orchestrator — One command, many nodes. Click any node to explore."
+  height={380}
+  nodes={[
+    {
+      id: "master",
+      label: "system.launch.py",
+      subtitle: "Master Bringup",
+      icon: "FileCode2",
+      accent: "cyan",
+      position: { x: 50, y: 140 },
+      description: "The Master Launch File is the single entry point. The engineer types 'ros2 launch my_bringup_pkg system.launch.py' and this Python script orchestrates everything. It declares global arguments (like use_sim_time), includes subsystem launch files, and passes configurations down the tree.",
+    },
+    {
+      id: "sensors",
+      label: "sensors.launch.py",
+      subtitle: "Sensor Subsystem",
+      icon: "Radar",
+      accent: "violet",
+      position: { x: 450, y: 40 },
+      description: "The Sensor Subsystem launch file starts all hardware drivers: LiDAR, cameras, IMU. It's owned by the perception team. The master launch file includes it via IncludeLaunchDescription and passes down the use_sim_time argument.",
+    },
+    {
+      id: "control",
+      label: "control.launch.py",
+      subtitle: "Control Subsystem",
+      icon: "Cog",
+      accent: "emerald",
+      position: { x: 450, y: 240 },
+      description: "The Control Subsystem launch file starts the PID controller, motor drivers, and safety watchdog. It loads the tuned YAML parameters file. It's owned by the control team. The master launch file includes it and passes the same global arguments.",
+    },
+    {
+      id: "yaml",
+      label: "pid_config.yaml",
+      subtitle: "Tuned Parameters",
+      icon: "FileText",
+      accent: "amber",
+      position: { x: 800, y: 240 },
+      description: "The YAML configuration file contains the perfectly tuned PID gains (kp, ki, kd) dumped from a previous track session. The control launch file loads it via --params-file so the node boots with the correct values immediately.",
+    },
+  ]}
+  edges={[
+    {
+      id: "e1",
+      source: "master",
+      target: "sensors",
+      label: "IncludeLaunchDescription",
+      animated: true,
+    },
+    {
+      id: "e2",
+      source: "master",
+      target: "control",
+      label: "IncludeLaunchDescription",
+      animated: true,
+    },
+    {
+      id: "e3",
+      source: "yaml",
+      target: "control",
+      label: "params-file",
+      animated: false,
+    },
+  ]}
+/>
+
+### Real-world Use Cases
+
+- **The "Bringup" Script:** A single `system.launch.py` that starts the perception stack, loads all tuned YAML files, and boots the motor controllers.
+- **Topic Remapping:** You download a community LiDAR package that publishes to `/laser_scan`, but your navigation stack expects `/scan`. You use the launch file to silently remap the topic name without touching the C++ source code.
+- **Namespacing:** Running two identical robots on the same Wi-Fi network. You use a launch file to push Robot 1's nodes into the `/robot1/` namespace and Robot 2 into `/robot2/` so their topics don't collide.
+
+---
+
+### Implementation — The Python Launch File
+
+All launch files in ROS 2 are Python. They can launch both C++ and Python executables seamlessly. **Build the launch file step by step:**
+
+<StepByStepCode
+  title="launch/system_bringup.launch.py"
+  description="The Master Bringup launch file — starts telemetry + PID controller, loads YAML, remaps topics. Built in 3 steps."
+  steps={[
+    {
+      title: "Step 1: Imports & Path Resolution",
+      explanation: "We import the ROS 2 launch modules and use get_package_share_directory to dynamically find the path to our tuned YAML config file. This prevents hardcoding absolute paths like /home/user/ros2_ws/... — if another engineer pulls your code, it just works.",
+      cpp: `// Launch files are Python-only in ROS 2.
+// This step is shown as Python in both tabs.
+//
+// (No C++ launch files exist in ROS 2)`,
+      python: `import os
+from ament_index_python.packages import \\
+    get_package_share_directory
+from launch import LaunchDescription
 from launch_ros.actions import Node
-import os
 
 def generate_launch_description():
-    pkg_dir = os.getenv('WS_DIR', '.')
+    # 1. Dynamically find the path to our tuned YAML file
+    # This prevents hardcoding absolute paths
+    control_pkg_dir = get_package_share_directory(
+        'my_control_pkg')
+    pid_config_path = os.path.join(
+        control_pkg_dir, 'config', 'pid_config.yaml')
 
+    # Node declarations (Step 2)
+    # Return LaunchDescription (Step 3)`,
+    },
+    {
+      title: "Step 2: Declare Nodes with Parameters & Remappings",
+      explanation: "We define two Node objects. The first is a simple telemetry node. The second is the PID controller — it loads parameters from the YAML file (parameters=[pid_config_path]) and remaps /cmd_vel to /steering/cmd_vel so the control commands go to the right topic without modifying the C++ source code.",
+      cpp: `// (Python-only — see Python tab)`,
+      python: `def generate_launch_description():
+    control_pkg_dir = get_package_share_directory(
+        'my_control_pkg')
+    pid_config_path = os.path.join(
+        control_pkg_dir, 'config', 'pid_config.yaml')
+
+    # 2. Define Node 1: The Telemetry Monitor (simple)
+    telemetry_node = Node(
+        package='my_cpp_pkg',
+        executable='telemetry_node',
+        name='telemetry_monitor',
+        output='screen'  # Print logs to terminal
+    )
+
+    # 3. Define Node 2: The PID Controller (advanced)
+    pid_node = Node(
+        package='my_control_pkg',
+        executable='pid_controller_node',
+        name='pid_controller',
+        output='screen',
+
+        # A. Load parameters from the YAML file
+        parameters=[pid_config_path],
+
+        # B. Remap a topic:
+        # Node publishes /cmd_vel, we want /steering/cmd_vel
+        remappings=[('/cmd_vel', '/steering/cmd_vel')]
+    )
+
+    # Return LaunchDescription (Step 3)`,
+    },
+    {
+      title: "Step 3: Return the LaunchDescription",
+      explanation: "The generate_launch_description function returns a LaunchDescription object containing all the nodes and actions. The ROS 2 Launch Executor evaluates this object and boots the nodes. When you type 'ros2 launch', the executor calls this function, builds the execution tree, and starts everything simultaneously.",
+      cpp: `// (Python-only — see Python tab)`,
+      python: `def generate_launch_description():
+    # ... Steps 1 & 2 ...
+
+    # 4. Return the LaunchDescription
+    # The Launch Executor evaluates this and boots the nodes
     return LaunchDescription([
-        # Launch arguments with defaults
-        DeclareLaunchArgument('use_sim', default_value='false'),
+        telemetry_node,
+        pid_node
+    ])
 
-        # Group nodes so they share namespace and parameter file
-        GroupAction([
-            Node(
-                package='my_robot_drivers',
-                executable='lidar_driver',
-                name='lidar',
-                parameters=[os.path.join(pkg_dir, 'config/lidar.yaml')],
-                remappings=[('/scan', '/lidar/scan')],
-                output='screen',
-            ),
-            Node(
-                package='my_robot_nav',
-                executable='planner_node',
-                name='planner',
-                parameters=[{
-                    'max_velocity': 2.5,
-                    'use_sim_time': LaunchConfiguration('use_sim'),
-                }],
-                output='screen',
-            ),
-        ]),
-    ])`}</CodeBlock>
+# Run with:
+# ros2 launch my_control_pkg system_bringup.launch.py`,
+    },
+  ]}
+/>
+
+---
+
+### Executing the Launch File
+
+**Type the launch command in the terminal below and watch multiple nodes start up simultaneously:**
+
+<SimulatedTerminal
+  title="ROS 2 Launch Terminal"
+  welcomeMessage={[
+    "ROS 2 Humble — Launch System Terminal",
+    "Type 'ros2 launch my_control_pkg system_bringup.launch.py' to start the system.",
+  ]}
+  hintCommands={[
+    "ros2 launch my_control_pkg system_bringup.launch.py",
+    "ros2 launch my_control_pkg system_bringup.launch.py use_sim_time:=true",
+    "ros2 node list",
+  ]}
+  commands={[
+    {
+      command: "ros2 launch my_control_pkg system_bringup.launch.py",
+      description: "Launch the entire system with one command",
+      output: [
+        "[INFO] [launch]: Default logging verbosity is set to INFO",
+        "[INFO] [telemetry_monitor-1]: process started with pid [12345]",
+        "[INFO] [pid_controller-2]: process started with pid [12346]",
+        "[INFO] [telemetry_monitor-1]: Telemetry Node Initialized. Systems nominal.",
+        "[INFO] [pid_controller-2]: PID Initialized with Kp: 2.50, Ki: 0.10, Kd: 0.05",
+        "[INFO] [telemetry_monitor-1]: Publishing telemetry packet #0",
+        "[INFO] [pid_controller-2]: Steering command: 0.15 rad",
+      ],
+    },
+    {
+      command: "ros2 launch my_control_pkg system_bringup.launch.py use_sim_time:=true",
+      description: "Launch with simulation time enabled (for Gazebo testing)",
+      output: [
+        "[INFO] [launch]: Default logging verbosity is set to INFO",
+        "[INFO] [launch]: use_sim_time:=true — using Gazebo clock",
+        "[INFO] [telemetry_monitor-1]: process started with pid [12350]",
+        "[INFO] [pid_controller-2]: process started with pid [12351]",
+        "[INFO] [telemetry_monitor-1]: Telemetry Node Initialized. Systems nominal.",
+        "[INFO] [pid_controller-2]: PID Initialized with Kp: 2.50, Ki: 0.10, Kd: 0.05",
+        "[INFO] [pid_controller-2]: Using simulation time: true",
+      ],
+    },
+    {
+      command: "ros2 node list",
+      description: "Verify all launched nodes are running",
+      output: [
+        "/pid_controller",
+        "/telemetry_monitor",
+      ],
+    },
+  ]}
+/>
+
+<Callout type="pitfall" title="CRITICAL Pitfall — Hardcoding File Paths">
+Never use `parameters=['/home/ammar/ros2_ws/src/.../config.yaml']`. If another engineer pulls your code on their machine, it will instantly crash because their username isn't `ammar`. **Always use `get_package_share_directory()`** to resolve paths dynamically based on the active ROS 2 installation.
+</Callout>
+
+<Callout type="pitfall" title="CRITICAL Pitfall — Forgetting to Install Launch/Config Files">
+If you put a `.launch.py` or `.yaml` file in your C++ package's `src` folder, `colcon build` will completely ignore it unless you explicitly tell CMake to install it.
+
+- **C++ fix:** Add `install(DIRECTORY launch config DESTINATION share/\${PROJECT_NAME})` to your `CMakeLists.txt`.
+- **Python fix:** Add the paths to the `data_files` array in `setup.py`.
+</Callout>
 
 <Callout type="best-practice" title="Best Practice — Launch File Composition">
-Never put your entire robot in one launch file. Build **modular** per-subsystem launch files (sensors.launch.py, navigation.launch.py, perception.launch.py) and compose them into a single `master_bringup.launch.py` using `IncludeLaunchDescription`. This keeps each subsystem independently testable.
+Do not write one massive 500-line launch file. Write a `sensors.launch.py`, a `navigation.launch.py`, and a `control.launch.py`. Then, write a master `system.launch.py` that simply includes the others using `IncludeLaunchDescription`. This keeps the architecture modular — each sub-team owns their launch file.
 </Callout>
 
 ---
 
-## Debugging & Data Logging
-### The "Why" & The "How" (The Black Box & The Visualizer)
+## Debugging and Data Logging (Rosbag2 & RViz2)
+
+### The "Why" & The "How"
 
 When a robot fails in the field, you need a **flight data recorder** (Rosbag2) to replay the exact sensor stream offline, and a **visualizer** (RViz2) to see what the robot's "brain" perceived at the moment of failure.
 
-<TerminalBlock title="bash">
-{`# Record all topics for 30 seconds
-ros2 bag record -a -o session_01 -d 30
+- **Rosbag2** records every message on every topic to a SQLite database on disk. You can replay it later at the exact original timing.
+- **RViz2** is a passive 3D visualizer. It subscribes to standard sensor topics and renders them in an OpenGL window, mapping data against the robot's TF2 coordinate frames.
 
-# Inspect a recorded bag
-ros2 bag info session_01
+**Drag the slider to compare "Raw Data" (numbers on a screen) vs "Visualized in RViz2" (3D point cloud + robot model):**
 
-# Play it back (with simulated time so nodes read the bag clock)
-ros2 bag play session_01 --clock
+<ComparisonSlider
+  label="Raw Data vs. RViz2 Visualization — drag to compare"
+  before={{
+    title: "Raw Sensor Data",
+    accent: "amber",
+    items: [
+      "LaserScan message: 720 float values per scan",
+      "ranges[0]: 2.51, ranges[1]: 2.49, ranges[2]: 2.52...",
+      "PointCloud2: 15MB binary blob per frame",
+      "Odometry: position x=1.23, y=0.45, z=0.00",
+      "TF transforms: 4x4 matrices in YAML",
+      "You stare at numbers — impossible to debug",
+      "Is that obstacle at 5m or 50m? Hard to tell",
+      "No spatial context — just raw bytes",
+    ]
+  }}
+  after={{
+    title: "RViz2 Visualization",
+    accent: "cyan",
+    items: [
+      "3D point cloud renders LiDAR hits as glowing dots",
+      "Obstacles appear as walls in the costmap",
+      "Robot model (URDF) rendered in the 3D scene",
+      "Odometry trail shows the driven path",
+      "Camera feed overlays as a 2D picture-in-picture",
+      "You SEE the world as the robot sees it",
+      "Instantly spot the noisy LiDAR return causing phantom braking",
+      "Tune planner parameters while watching trajectories update live",
+    ]
+  }}
+/>
 
-# Launch the visualizer
-rviz2`}
-</TerminalBlock>
+### Real-world Use Cases
 
-<Callout type="pitfall" title="CRITICAL Pitfall — Forgetting use_sim_time">
-When playing back a bag, all nodes that consume the bag's data MUST be launched with `use_sim_time:=true`. Otherwise they use wall-clock time, causing TF lookups to fail with "past extrapolation" errors. Always pass `--clock` to `ros2 bag play` AND set `use_sim_time` on subscribers.
+- **Debugging Phantom Braking:** The robot emergency-brakes on an empty track. You replay the rosbag through RViz2 and see that a single noisy LiDAR point bounced off a dust cloud, and the Nav2 local costmap incorrectly inflated it into a concrete wall.
+- **Off-Robot Tuning:** You want to tune the DWB critic weights in your local planner. Instead of draining the robot's battery by running it all day, you record one lap. You sit in the lab, loop the bag file, and watch the planner's projected trajectories shift in RViz2 as you mutate the parameters via the CLI.
+
+---
+
+### Implementation — Rosbag2 CLI Tools
+
+**Try the rosbag commands in the terminal below. Record sensor data, play it back, and inspect the bag info:**
+
+<SimulatedTerminal
+  title="ROS 2 Rosbag2 Terminal"
+  welcomeMessage={[
+    "ROS 2 Humble — Data Recording & Playback Terminal",
+    "Try 'ros2 bag record /scan /odom -o lap_01' to record a lap.",
+  ]}
+  hintCommands={[
+    "ros2 bag record /scan /odom /tf -o lap_01",
+    "ros2 bag record -a -o full_system_log",
+    "ros2 bag play lap_01",
+    "ros2 bag play lap_01 -l",
+    "ros2 bag play lap_01 --clock",
+    "ros2 bag info lap_01",
+  ]}
+  commands={[
+    {
+      command: "ros2 bag record /scan /odom /tf -o lap_01",
+      description: "Record specific topics to a bag file (recommended)",
+      output: [
+        "[INFO] [rosbag2_recorder]: Listening to topics...",
+        "[INFO] [rosbag2_recorder]: Subscribed to topic '/scan'",
+        "[INFO] [rosbag2_recorder]: Subscribed to topic '/odom'",
+        "[INFO] [rosbag2_recorder]: Subscribed to topic '/tf'",
+        "[INFO] [rosbag2_recorder]: Recording...",
+        "[INFO] [rosbag2_recorder]: Press Ctrl+C to stop recording.",
+        "# (recording in progress... press Ctrl+C to stop)",
+        "# [INFO] [rosbag2_recorder]: Bag file 'lap_01' closed.",
+        "# Total messages: 1,247 | Duration: 32.5s | Size: 4.2 MB",
+      ],
+    },
+    {
+      command: "ros2 bag record -a -o full_system_log",
+      description: "Record ALL topics (use with caution — huge files!)",
+      output: [
+        "[INFO] [rosbag2_recorder]: Listening to ALL topics...",
+        "[WARN] [rosbag2_recorder]: Recording all topics including /camera/image_raw!",
+        "[WARN] [rosbag2_recorder]: This will consume significant disk space.",
+        "[INFO] [rosbag2_recorder]: Recording...",
+        "# (Ctrl+C to stop)",
+      ],
+    },
+    {
+      command: "ros2 bag play lap_01",
+      description: "Playback the recorded data at 1.0x speed",
+      output: [
+        "[INFO] [rosbag2_player]: Opening bag 'lap_01'",
+        "[INFO] [rosbag2_player]: Publishing 1,247 messages over 32.5s",
+        "[INFO] [rosbag2_player]: Playback speed: 1.0x",
+        "# (data is being published to /scan, /odom, /tf)",
+      ],
+    },
+    {
+      command: "ros2 bag play lap_01 -l",
+      description: "Loop playback — restarts automatically (for tuning sessions)",
+      output: [
+        "[INFO] [rosbag2_player]: Opening bag 'lap_01'",
+        "[INFO] [rosbag2_player]: Loop mode ENABLED",
+        "[INFO] [rosbag2_player]: Publishing 1,247 messages over 32.5s",
+        "# (plays, then automatically restarts from the beginning)",
+      ],
+    },
+    {
+      command: "ros2 bag play lap_01 --clock",
+      description: "Hijack the ROS clock — publish historical timestamps as 'now'",
+      output: [
+        "[INFO] [rosbag2_player]: Opening bag 'lap_01'",
+        "[INFO] [rosbag2_player]: Publishing /clock topic with bag timestamps",
+        "[INFO] [rosbag2_player]: Use with use_sim_time:=true on all nodes",
+        "# (nodes now see bag timestamps as current time)",
+      ],
+    },
+    {
+      command: "ros2 bag info lap_01",
+      description: "Inspect a bag file's metadata",
+      output: [
+        "Files:             lap_01/lap_01_0.db3",
+        "Bag size:          4.2 MB",
+        "Storage id:        sqlite3",
+        "Duration:          32.50s",
+        "Start:             Jul 23 2023 10:15:30.123",
+        "End:               Jul 23 2023 10:16:02.623",
+        "Messages:          1,247",
+        "Topic information: ",
+        "  Topic: /scan    Type: sensor_msgs/msg/LaserScan   Count: 325",
+        "  Topic: /odom    Type: nav_msgs/msg/Odometry       Count: 325",
+        "  Topic: /tf      Type: tf2_msgs/msg/TFMessage       Count: 597",
+      ],
+    },
+  ]}
+/>
+
+<Callout type="pitfall" title="CRITICAL Pitfall — The SSD Storage Nightmare">
+If your robot has two 4K cameras running at 30fps and you type `ros2 bag record -a`, you will write **gigabytes of uncompressed image data** to your hard drive every few seconds. You will completely fill the robot's SSD mid-operation, causing the OS to crash and the vehicle to stall.
+
+**Best Practice:** Use the `-x` (exclude) flag with regular expressions to skip massive raw images:
+```bash
+ros2 bag record -a -x "/camera/(.*)/image_raw" -o safe_telemetry
+```
 </Callout>
 
-<Callout type="best-practice" title="Best Practice — Always Be Recording">
-In field testing, run `ros2 bag record -a` continuously. Disk is cheap; a failed test you can't replay is expensive. Tag each bag with a timestamp and a one-line note about what was being tested.
+<Callout type="pitfall" title="CRITICAL Pitfall — The 'Fixed Frame' Error in RViz2">
+This is the #1 reason engineers think their sensors are broken. When you open RViz2, the "Fixed Frame" dropdown defaults to `map`. If your robot is not currently running a mapping or localization algorithm (Nav2/SLAM), the `map` frame does not exist on the network. RViz2 will throw a massive red **"Global Status: Error"** and refuse to render any data.
+
+**Best Practice:** Always change the Fixed Frame to `base_link` or `odom` when doing raw sensor debugging.
+</Callout>
+
+<Callout type="pitfall" title="CRITICAL Pitfall — Clock Synchronization (--clock)">
+If you are playing back a bag file to test an algorithm (like the EKF or a path planner), the algorithm will look at the messages, see a timestamp from 3 days ago, and immediately reject the data as "too old."
+
+**Best Practice:** Run your nodes with `use_sim_time:=true`, and play your bag file with the `--clock` flag. This forces rosbag2 to hijack the ROS network clock and publish the historical time as if it were the present moment.
+</Callout>
+
+<Callout type="best-practice" title="Best Practice — The Tuning Loop">
+The `-l` (loop) flag is your secret weapon for parameter tuning. Record one lap, then loop it continuously while you adjust PID gains or planner weights via `ros2 param set`. You instantly see the effect in RViz2 without draining the robot's battery or risking hardware damage.
 </Callout>
 
 ---
 
-> **Coming next:** Full deep-dives into custom parameter validators, launch event handlers (handlers for `OnProcessExit`, `OnProcessIO`), and advanced RViz2 plugin configuration.
+> **Coming next in Phase 4:** Spatial Awareness & Kinematics — TF2 (The Transform Framework), coordinate frames, and the TF tree that gives your robot a sense of space.
