@@ -2,6 +2,7 @@
 
 import { useState, useCallback, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { PanelLeftOpen } from "lucide-react";
 import { Navbar } from "@/components/layout/Navbar";
 import { LeftSidebar } from "@/components/layout/LeftSidebar";
 import { RightSidebar } from "@/components/layout/RightSidebar";
@@ -27,11 +28,16 @@ interface AppShellProps {
  * the Navbar, LeftSidebar, RightSidebar, and footer. Navigation is performed
  * via `router.push('/?m=moduleId')` so the server component re-renders with
  * the new module's MDX.
+ *
+ * Sidebar hide/show: the learner can hide the left sidebar for a full-width
+ * "focus mode". When hidden, a floating "Show Menu" button appears on the
+ * left edge.
  */
 export function AppShell({ moduleId, children }: AppShellProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+  const [sidebarHidden, setSidebarHidden] = useState(false);
   const { toggle, bookmarked, toggleBookmark } = useModuleProgress(moduleId);
   const { toast } = useToast();
 
@@ -40,14 +46,12 @@ export function AppShell({ moduleId, children }: AppShellProps) {
       const params = new URLSearchParams(searchParams.toString());
       params.set("m", nextModuleId);
       router.push(`/?${params.toString()}`, { scroll: false });
-      // Close the mobile sidebar — this is the only place moduleId changes,
-      // so no separate effect is needed.
       setMobileSidebarOpen(false);
     },
     [router, searchParams]
   );
 
-  // Global keyboard shortcuts for lesson actions (M, B, T, O, Arrow keys)
+  // Global keyboard shortcuts for lesson actions (M, B, T, O, H, Arrow keys)
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement;
@@ -79,11 +83,13 @@ export function AppShell({ moduleId, children }: AppShellProps) {
         e.preventDefault();
         window.scrollTo({ top: 0, behavior: "smooth" });
       } else if (e.key.toLowerCase() === "o") {
-        // Go to Course Overview
         e.preventDefault();
         router.push("/");
+      } else if (e.key.toLowerCase() === "h") {
+        // Toggle sidebar hide/show (focus mode)
+        e.preventDefault();
+        setSidebarHidden((h) => !h);
       } else if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
-        // Navigate between lessons with arrow keys
         const adjacent = getAdjacentModules(moduleId);
         if (e.key === "ArrowLeft" && adjacent.prev) {
           e.preventDefault();
@@ -113,6 +119,8 @@ export function AppShell({ moduleId, children }: AppShellProps) {
           onNavigate={handleNavigate}
           mobileOpen={mobileSidebarOpen}
           onCloseMobile={() => setMobileSidebarOpen(false)}
+          isHidden={sidebarHidden}
+          onHide={() => setSidebarHidden(true)}
         />
 
         <main className="flex min-w-0 flex-1 flex-col">
@@ -128,6 +136,18 @@ export function AppShell({ moduleId, children }: AppShellProps) {
           <div className="h-16 lg:hidden" aria-hidden="true" />
         </main>
       </div>
+
+      {/* Floating "Show Menu" button — appears when sidebar is hidden (desktop only) */}
+      {sidebarHidden && (
+        <button
+          onClick={() => setSidebarHidden(false)}
+          className="fixed left-0 top-1/2 z-30 hidden -translate-y-1/2 items-center gap-1 rounded-r-lg border border-l-0 border-border/60 bg-card/90 py-3 pl-1.5 pr-2.5 text-muted-foreground shadow-lg backdrop-blur-sm transition-all hover:bg-card hover:text-cyan-400 lg:flex"
+          aria-label="Show sidebar"
+          title="Show sidebar (or press H)"
+        >
+          <PanelLeftOpen className="h-4 w-4" />
+        </button>
+      )}
 
       <footer className="mt-auto border-t border-border/60 bg-background/80 py-4 backdrop-blur">
         <div className="mx-auto flex max-w-7xl flex-col items-center justify-between gap-2 px-4 text-xs text-muted-foreground sm:flex-row sm:px-6">

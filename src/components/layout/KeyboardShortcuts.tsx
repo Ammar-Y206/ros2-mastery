@@ -22,6 +22,7 @@ const SHORTCUTS: { section: string; items: ShortcutItem[] }[] = [
       { keys: ["⌘", "K"], description: "Open search / command palette" },
       { keys: ["?"], description: "Show this keyboard shortcuts panel" },
       { keys: ["O"], description: "Go to Course Overview" },
+      { keys: ["H"], description: "Hide/Show sidebar (focus mode)" },
       { keys: ["←"], description: "Previous lesson" },
       { keys: ["→"], description: "Next lesson" },
       { keys: ["Esc"], description: "Close dialog / overlay" },
