@@ -15,6 +15,9 @@ import { StepByStepCode } from "@/components/mdx/StepByStepCode";
 import { SimulatedTerminal } from "@/components/mdx/SimulatedTerminal";
 import { ComparisonSlider } from "@/components/mdx/ComparisonSlider";
 
+// All interactive MDX components are 'use client' — webpack automatically
+// code-splits them. The homepage (/) renders OverviewWrapper which doesn't
+// import any of these, so they only download when a lesson page is visited.
 const MDX_COMPONENTS = {
   Callout,
   CodeBlock,

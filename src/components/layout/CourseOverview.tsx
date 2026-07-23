@@ -26,7 +26,20 @@ import { BookmarksButton } from "@/components/layout/BookmarksButton";
 import { AchievementsButton } from "@/components/layout/AchievementsButton";
 import { CompletedButton } from "@/components/layout/CompletedButton";
 import { AchievementWatcher } from "@/components/layout/AchievementWatcher";
-import { AnimatedRobotSchematic } from "@/components/layout/AnimatedRobotSchematic";
+import dynamic from "next/dynamic";
+
+// Lazy-load the 3D Cyber Rover (heavy WebGL) — only downloads on the client
+const CyberRover3D = dynamic(
+  () => import("@/components/layout/Hero3DModel").then((m) => m.CyberRover3D),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex h-full w-full items-center justify-center">
+        <div className="h-16 w-16 animate-spin rounded-full border-2 border-cyan-500/30 border-t-cyan-400" />
+      </div>
+    ),
+  }
+);
 
 interface CourseOverviewProps {
   onNavigate: (moduleId: string) => void;
@@ -188,14 +201,13 @@ export function CourseOverview({ onNavigate, onDismiss, onBookmarks, onAchieveme
             </div>
           </div>
 
-          {/* Right: Animated Robot Schematic */}
-          <div className="relative hidden h-[500px] items-center justify-center lg:flex">
-            <AnimatedRobotSchematic className="max-h-full max-w-full" />
-          </div>
-
-          {/* Mobile: schematic below text (smaller) */}
-          <div className="relative flex h-[280px] items-center justify-center lg:hidden">
-            <AnimatedRobotSchematic className="h-full w-full max-w-sm opacity-80" />
+          {/* Right: 3D Cyber Rover (MASSIVE — 50%+ width on desktop) */}
+          <div className="relative h-[300px] w-full sm:h-[400px] lg:h-[600px] lg:min-h-[80vh]">
+            <CyberRover3D className="h-full w-full" />
+            {/* Subtle hint text */}
+            <p className="pointer-events-none absolute bottom-2 left-1/2 -translate-x-1/2 text-[10px] text-muted-foreground/40">
+              drag to rotate
+            </p>
           </div>
         </div>
       </section>
