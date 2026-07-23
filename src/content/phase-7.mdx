@@ -1,6 +1,6 @@
 # Phase 7: The Autonomous Stack
 
-> Awaken the master autonomy. **Fuse sensors, map the environment, and plan the optimal path** to navigate autonomously while avoiding obstacles.
+> Awaken the master autonomy. **Fuse sensors, map the environment, and plan the optimal path** to navigate autonomously while avoiding obstacles. This is the grand finale — everything connects into one living, breathing autonomous system.
 
 **What you will master:**
 
@@ -11,196 +11,854 @@
 ---
 
 ## Sensor Fusion & State Estimation (EKF)
+
 ### The "Why" & The "How" (The Kalman Filter)
 
 No single sensor is perfect. Wheel encoders drift on slippery floors. IMUs accumulate gyro bias. GPS bounces off buildings. The **Extended Kalman Filter** fuses them: it predicts the next state from the IMU, then corrects the drift using the encoders, producing a single **filtered truth** that is better than any individual source.
 
-The `robot_localization` package provides a production-ready EKF node. You configure it with a YAML specifying which sensors feed which state dimensions.
+**Drag the slider to see the difference between raw noisy sensor data and EKF-filtered output:**
 
-### The `robot_localization` Configuration
+<ComparisonSlider
+  label="Raw Sensor Data (Noisy) vs. EKF Filtered Output (Smooth) — drag to compare"
+  before={{
+    title: "Raw Sensor Data (Noisy)",
+    accent: "rose",
+    items: [
+      "Wheel odometry: drifts 2m after 100m of driving (wheel slip)",
+      "IMU gyro: accumulates 5° heading error per minute (bias drift)",
+      "GPS: jumps ±3m randomly near buildings (multipath)",
+      "Each sensor disagrees with the others by different amounts",
+      "Robot position estimate jitters violently at 30Hz",
+      "Path planner receives conflicting data → jerky motion",
+      "Cannot trust any single source for navigation",
+      "After 500m of driving: position estimate is off by 5+ meters",
+      "Heading drift causes the robot to veer off course slowly",
+      "Emergency: sensor glitch causes a 2m position jump mid-turn",
+    ]
+  }}
+  after={{
+    title: "EKF Filtered Output (Smooth)",
+    accent: "emerald",
+    items: [
+      "EKF fuses all sensors using a 15-element state vector",
+      "Predicts next state from IMU acceleration, corrects with encoders",
+      "Weights each sensor by its covariance (uncertainty matrix)",
+      "Output is smooth, continuous, and drift-corrected",
+      "Position estimate is stable at 30Hz — no jitter",
+      "Path planner receives consistent data → smooth motion",
+      "Cross-validation: if GPS jumps, EKF ignores it (trusts IMU+odom)",
+      "After 500m: position estimate is off by <0.5m (10x better)",
+      "Heading is corrected by IMU absolute orientation reference",
+      "Glitches are filtered out — the robot drives through them smoothly",
+    ]
+  }}
+/>
 
-<CodeBlock
+### The EKF Architecture
+
+The `robot_localization` package provides a production-ready EKF node. **Click each node to understand how noisy inputs become a single clean output:**
+
+<InteractiveGraph
+  title="The EKF Sensor Fusion Pipeline — Click any node to explore"
+  height={380}
+  nodes={[
+    {
+      id: "odom",
+      label: "Wheel Odometry",
+      subtitle: "/odom (noisy, drifts)",
+      icon: "Gauge",
+      accent: "amber",
+      position: { x: 50, y: 40 },
+      description: "Wheel encoders provide continuous position estimates (X, Y, yaw) at 50Hz. They're smooth but DRIFT over time due to wheel slip. The EKF uses odometry for X, Y position and X/Y velocity. Config: odom0_config specifies which of the 15 state elements to use from this sensor.",
+    },
+    {
+      id: "imu",
+      label: "IMU",
+      subtitle: "/imu/data (gyro bias)",
+      icon: "Compass",
+      accent: "rose",
+      position: { x: 50, y: 150 },
+      description: "The IMU provides absolute orientation (yaw, pitch, roll) and angular velocity. It's critical for heading correction — wheel odometry struggles with turning, but the IMU provides ground truth orientation. The EKF uses IMU for yaw, yaw velocity, and X acceleration. Config: imu0_config with imu0_differential=false, imu0_relative=true.",
+    },
+    {
+      id: "gps",
+      label: "GPS (optional)",
+      subtitle: "/gps/fix (jumps near buildings)",
+      icon: "Satellite",
+      accent: "violet",
+      position: { x: 50, y: 260 },
+      description: "GPS provides global position fixes but jumps ±3m near buildings (multipath interference). The EKF uses GPS as a global correction — when GPS is available and consistent, it corrects the cumulative drift from odometry. For indoor robots, GPS is omitted and SLAM (Module 7.2) takes over the global correction role.",
+    },
+    {
+      id: "ekf",
+      label: "EKF Filter Node",
+      subtitle: "robot_localization",
+      icon: "Brain",
+      accent: "cyan",
+      position: { x: 450, y: 150 },
+      description: "The Extended Kalman Filter node from robot_localization. It maintains a 15-element state vector: [x, y, z, roll, pitch, yaw, vx, vy, vz, vroll, vpitch, vyaw, ax, ay, az]. It PREDICTS the next state using the motion model (from IMU acceleration), then CORRECTS using sensor measurements weighted by their covariance matrices. Runs at 30Hz. Publishes /odometry/filtered and the odom→base_link TF transform.",
+    },
+    {
+      id: "filtered",
+      label: "/odometry/filtered",
+      subtitle: "Clean, fused output",
+      icon: "CheckCircle2",
+      accent: "emerald",
+      position: { x: 800, y: 150 },
+      description: "The single, clean output. This is the 'filtered truth' — smoother than any individual sensor, drift-corrected by cross-validation. Nav2, the path planner, and RViz2 all subscribe to this topic. The EKF also publishes the odom→base_link transform, making it the sole authority for the odometry frame.",
+    },
+  ]}
+  edges={[
+    {
+      id: "e1",
+      source: "odom",
+      target: "ekf",
+      label: "odom0: X, Y, vx, vy, vyaw",
+      animated: true,
+    },
+    {
+      id: "e2",
+      source: "imu",
+      target: "ekf",
+      label: "imu0: yaw, vyaw, ax",
+      animated: true,
+    },
+    {
+      id: "e3",
+      source: "gps",
+      target: "ekf",
+      label: "gps0: X, Y (global)",
+      animated: false,
+    },
+    {
+      id: "e4",
+      source: "ekf",
+      target: "filtered",
+      label: "/odometry/filtered + TF",
+      animated: true,
+    },
+  ]}
+/>
+
+---
+
+### Implementation — The EKF Configuration
+
+The EKF node tracks a 15-element state vector: `[x, y, z, roll, pitch, yaw, vx, vy, vz, vroll, vpitch, vyaw, ax, ay, az]`. Each sensor's config matrix specifies which of these 15 elements it contributes to.
+
+<StepByStepCode
   title="config/ekf.yaml"
-  language="yaml"
->{`ekf_filter_node:
+  description="The EKF configuration — defines which sensors to fuse, which state elements each provides, and the coordinate frames. Built in 3 steps."
+  steps={[
+    {
+      title: "Step 1: Core Settings & Coordinate Frames",
+      explanation: "We set the EKF frequency to 30Hz, enable 2D mode (ignoring Z, roll, and pitch for ground robots), and configure the coordinate frames. The world_frame is set to 'odom' — meaning the EKF publishes the odom→base_link transform. If SLAM is running, it publishes map→odom, and the EKF handles odom→base_link.",
+      cpp: `// YAML config — see the Python tab`,
+      python: `# config/ekf.yaml
+ekf_filter_node:
   ros__parameters:
-    frequency: 30.0
-    two_d_mode: true
-    publish_tf: true
+    frequency: 30.0           # Hz — filter update rate
+    sensor_timeout: 0.1       # seconds — if no data, predict only
+    two_d_mode: true          # Ground robot: ignore Z, Roll, Pitch
+    print_diagnostics: true   # Debug: print fusion diagnostics
+    publish_tf: true          # Publish odom -> base_link transform
 
-    # Map frame configuration
-    map_frame: map
-    odom_frame: odom
-    base_link_frame: base_link
-    world_frame: odom
+    # Coordinate Frames (MUST match your TF tree)
+    map_frame: map            # Global frame (published by SLAM)
+    odom_frame: odom          # Continuous smooth frame
+    base_link_frame: base_link # Robot body frame
+    world_frame: odom          # EKF publishes odom -> base_link
 
-    # Sensor 1: wheel odometry (x, y, yaw)
-    odom0: /wheel/odometry
-    odom0_config: [true, true, false,
+    # Sensor configs (Step 2)`,
+    },
+    {
+      title: "Step 2: Wheel Odometry Input (odom0)",
+      explanation: "The odom0_config matrix is a 15-element boolean array mapping to [x, y, z, roll, pitch, yaw, vx, vy, vz, vroll, vpitch, vyaw, ax, ay, az]. We tell the EKF that odometry provides: X position (true), Y position (true), X velocity (true), Y velocity (true), and yaw velocity (true). Everything else is false — the IMU will provide those.",
+      cpp: `// YAML config — see the Python tab`,
+      python: `# ... Step 1 ...
+
+    # 1. Wheel Odometry Input
+    odom0: /ackermann_steering_controller/odom
+
+    # Matrix: [x, y, z, roll, pitch, yaw,
+    #          vx, vy, vz, vroll, vpitch, vyaw,
+    #          ax, ay, az]
+    odom0_config: [true,  true,  false,
+                   false, false, false,
+                   true,  true,  false,
                    false, false, true,
-                   false, false, false,
-                   false, false, false,
                    false, false, false]
+    # X, Y position + X, Y velocity + yaw velocity
+    odom0_differential: false  # Use absolute, not relative`,
+    },
+    {
+      title: "Step 3: IMU Input + Launch File",
+      explanation: "The IMU provides yaw (absolute orientation), yaw velocity, and X acceleration. We set imu0_relative=true so the EKF integrates the IMU's relative measurements. The launch file loads the EKF node with the YAML config and remaps /odometry/filtered to /odom for Nav2 compatibility.",
+      cpp: `// YAML + launch — see the Python tab`,
+      python: `# ... Steps 1 & 2 ...
 
-    # Sensor 2: IMU (roll, pitch, yaw rate)
+    # 2. IMU Input
     imu0: /imu/data
     imu0_config: [false, false, false,
-                  true, true, false,
-                  false, false, true,
+                  false, false, true,   # yaw
                   false, false, false,
-                  false, false, false]
+                  false, false, true,   # vyaw
+                  true,  false, false]   # ax
+    imu0_differential: false
+    imu0_relative: true  # Integrate relative IMU measurements
 
-    # Covariance tuning — CRITICAL
-    odom0_differential: false
-    imu0_differential: true`}
-</CodeBlock>
+# ── LAUNCH FILE: launch/ekf.launch.py ──
+import os
+from launch import LaunchDescription
+from launch_ros.actions import Node
+from ament_index_python.packages import \\
+    get_package_share_directory
 
-### Implementation — The Launch
+def generate_launch_description():
+    return LaunchDescription([
+        Node(
+            package='robot_localization',
+            executable='ekf_node',
+            name='ekf_filter_node',
+            output='screen',
+            parameters=[os.path.join(
+                get_package_share_directory('my_robot'),
+                'config', 'ekf.yaml')],
+            # Remap for Nav2 standard topic name
+            remappings=[('/odometry/filtered', '/odom')]
+        )
+    ])
+# Run: ros2 launch my_robot ekf.launch.py`,
+    },
+  ]}
+/>
 
-<TerminalBlock title="bash">
-{`# Launch the EKF node with the config
-ros2 launch robot_localization ekf.launch.py params_file:=config/ekf.yaml
+<Callout type="pitfall" title="CRITICAL Pitfall — The Transform Authority Nightmare">
+A coordinate frame (`odom → base_link`) can only have **one publisher**. If both the steering controller AND the EKF publish this transform, the visualizer will **flicker violently** as they fight for authority.
 
-# Inspect the fused output
-ros2 topic echo /odometry/filtered
-ros2 run tf2_ros tf2_echo odom base_link`}
-</TerminalBlock>
-
-<Callout type="pitfall" title="CRITICAL Pitfall — Inflated Covariances">
-If you set sensor covariances too low (over-confident), the EKF trusts a noisy sensor and the estimate **jumps**. If too high, it ignores good data and **drifts**. Always start with the manufacturer's datasheet values and tune empirically — plot `/odometry/filtered` vs raw `/wheel/odometry` and adjust until smooth AND responsive.
+**The Fix:** Disable `enable_odom_tf` in the steering controller and let the EKF be the **sole authority** for the `odom → base_link` transform.
 </Callout>
 
-<Callout type="best-practice" title="Best Practice — Differential Mode for IMU">
-Set `imu0_differential: true`. An IMU reports absolute orientation, but its bias drifts over time. Differential mode converts it to a *rate* measurement, so the EKF integrates it fresh — preventing accumulated bias from corrupting the global estimate.
+<Callout type="pitfall" title="CRITICAL Pitfall — The Non-Zero Covariance Rule">
+If a sensor reports **zero standard deviation** (perfect data), the EKF treats it as "Infinite Truth." Any glitch can then cause a mathematical singularity (division by zero) and **crash the node**. Always publish a small, non-zero covariance matrix in your sensor messages.
+</Callout>
+
+<Callout type="best-practice" title="Best Practice — Coordinate Frame Alignment">
+Ensure the IMU and encoders agree on the forward (+X) axis. Use static transforms to align `imu_link` perfectly with `base_link` to avoid the filter thinking the robot is spinning during straight-line travel.
 </Callout>
 
 ---
 
 ## Perception & Mapping (SLAM)
+
 ### The "Why" & The "How" (SLAM vs. EKF)
 
-EKF fuses *motion* sensors. **SLAM** (Simultaneous Localization And Mapping) does something fundamentally harder: it builds a map of an **unknown environment** while simultaneously localizing within it. It uses scan-matching — comparing consecutive LiDAR scans to estimate how the robot moved, then stitches all scans into an occupancy grid.
+You might ask: *"If we have an EKF, why do we need SLAM?"*
 
-The `slam_toolbox` package is the ROS 2 standard for 2D SLAM.
+- **Local Localization** (`odom → base_link`): Provided by the EKF. High-frequency and smooth, but **drifts** over time. After 500m of driving, the EKF might be off by several meters.
+- **Global Localization** (`map → odom`): Provided by SLAM. It uses landmarks (walls, pillars, cones) to **snap** the robot back to its true position on the map, effectively zeroing out the EKF drift.
 
-### The `slam_toolbox` Configuration
+**Click the nodes below to see the SLAM pipeline:**
 
-<CodeBlock
-  title="config/slam.yaml"
-  language="yaml"
->{`slam_toolbox:
+<InteractiveGraph
+  title="The SLAM Pipeline — Click any node to explore"
+  height={360}
+  nodes={[
+    {
+      id: "lidar_scan",
+      label: "LiDAR Scan",
+      subtitle: "/scan (LaserScan)",
+      icon: "Radar",
+      accent: "cyan",
+      position: { x: 50, y: 120 },
+      description: "The raw LiDAR scan: 360 distance readings per revolution. This is the sensor input to SLAM. Each scan is matched against the previous scan to estimate how the robot moved (scan matching). The scan quality directly affects map quality — a vibrating LiDAR produces ghost walls.",
+    },
+    {
+      id: "slam",
+      label: "SLAM Node",
+      subtitle: "slam_toolbox",
+      icon: "Brain",
+      accent: "violet",
+      position: { x: 400, y: 120 },
+      description: "slam_toolbox is the industry-standard ROS 2 SLAM package. It does two things simultaneously: (1) LOCALIZATION — matches the current LiDAR scan against the growing map to determine the robot's position, and (2) MAPPING — integrates the scan into the occupancy grid map. It publishes the map→odom transform (global correction) and the /map topic (the occupancy grid).",
+    },
+    {
+      id: "map_topic",
+      label: "/map",
+      subtitle: "Occupancy Grid",
+      icon: "Map",
+      accent: "emerald",
+      position: { x: 750, y: 50 },
+      description: "The occupancy grid: a 2D pixel map where each cell is 'Free' (0), 'Occupied' (100), or 'Unknown' (-1). The planner uses this to find paths. The map is saved as two files: a .pgm (the image) and a .yaml (the metadata: resolution, origin, occupied/free thresholds).",
+    },
+    {
+      id: "map_odom_tf",
+      label: "map → odom TF",
+      subtitle: "Global Correction",
+      icon: "RefreshCw",
+      accent: "amber",
+      position: { x: 750, y: 190 },
+      description: "The map→odom transform is SLAM's global correction. When the robot realizes it has drifted (by comparing its LiDAR view to the map), it shifts the map→odom transform to snap the robot back to its true position. This is why the odom frame is 'smooth but drifts' and the map frame is 'drift-free but jumps'.",
+    },
+  ]}
+  edges={[
+    {
+      id: "e1",
+      source: "lidar_scan",
+      target: "slam",
+      label: "/scan",
+      animated: true,
+    },
+    {
+      id: "e2",
+      source: "slam",
+      target: "map_topic",
+      label: "publishes /map",
+      animated: true,
+    },
+    {
+      id: "e3",
+      source: "slam",
+      target: "map_odom_tf",
+      label: "broadcasts TF",
+      animated: true,
+    },
+  ]}
+/>
+
+---
+
+### Implementation — SLAM Configuration & Launch
+
+<StepByStepCode
+  title="config/mapper_params_online_async.yaml"
+  description="The slam_toolbox configuration — defines map resolution, scan matching, and loop closure. Built in 2 steps."
+  steps={[
+    {
+      title: "Step 1: Core SLAM Parameters",
+      explanation: "We configure slam_toolbox in online_async mode (drops scans if CPU is overwhelmed — always use this for live operation). The resolution is 0.05m (5cm per pixel). minimum_time_between_scans prevents CPU overload. The map is published to /map and the map→odom transform is broadcast automatically.",
+      cpp: `// YAML config — see the Python tab`,
+      python: `# config/mapper_params_online_async.yaml
+slam_toolbox:
   ros__parameters:
+    # Solver: Ceres is faster than g2o for most robots
     solver_plugin: solver_plugins::CeresSolver
-    mode: mapping          # 'mapping' or 'localization'
 
-    # Scan matching
-    minimum_time_interval: 0.5
-    map_update_interval: 1.0
-    resolution: 0.05       # 5cm per grid cell
+    # Mode: online_async drops scans if CPU lags
+    # (use sync only for offline high-quality mapping)
+    mode: mapping
 
-    # Loop closure
+    # Map resolution: 5cm per pixel
+    resolution: 0.05
+
+    # Scan processing
+    minimum_time_between_scans: 0.5  # seconds
+    map_update_interval: 1.0         # seconds
+
+    # Scan matching (Step 2)`,
+    },
+    {
+      title: "Step 2: Loop Closure + Launch File",
+      explanation: "Loop closure is SLAM's most powerful feature: when the robot returns to a previously visited location, it recognizes the match and 'closes the loop' — shifting the entire map to align. This eliminates accumulated drift. The danger: a large loop closure jump (1m+) can jerk the steering of a high-speed controller. Keep the EKF tuned so jumps stay under 10cm.",
+      cpp: `// YAML + launch — see the Python tab`,
+      python: `# ... Step 1 ...
+
+    # Loop Closure
     enable_loop_closing: true
     loop_closure_maximum_search_radius: 3.0
     loop_match_minimum_chain_size: 10
+    loop_search_maximum_distance: 3.0
 
     # Sensor config
     scan_topic: /scan
-    max_laser_range: 20.0`}
-</CodeBlock>
+    max_laser_range: 20.0
 
-### Implementation — Launch & RViz
+# ── LAUNCH FILE: launch/slam.launch.py ──
+import os
+from launch import LaunchDescription
+from launch_ros.actions import Node
+from ament_index_python.packages import \\
+    get_package_share_directory
 
-<TerminalBlock title="bash">
-{`# Online sync SLAM
-ros2 launch slam_toolbox online_sync_launch.py
+def generate_launch_description():
+    return LaunchDescription([
+        Node(
+            package='slam_toolbox',
+            executable='online_async_launch.py',
+            name='slam_toolbox',
+            output='screen',
+            parameters=[
+                os.path.join(
+                    get_package_share_directory('my_robot'),
+                    'config',
+                    'mapper_params_online_async.yaml')
+            ]
+        )
+    ])
+# Run: ros2 launch my_robot slam.launch.py
+# Save map: ros2 run nav2_map_server map_saver
+#           -f ~/maps/my_environment`,
+    },
+  ]}
+/>
 
-# Save the built map
-ros2 service call /slam_toolbox/save_map slam_toolbox/srv/SaveMap \\
-  "name: 'warehouse_floor'"
+### Launching SLAM — Try It
 
-# Later, localize in the saved map
-ros2 launch slam_toolbox localization_launch.py map:='warehouse_floor.yaml'`}
-</TerminalBlock>
+**Type the SLAM commands in the terminal below. Watch the mock map generation logs:**
 
-<Callout type="pitfall" title="CRITICAL Pitfall — Odometry Must Be Good Before SLAM">
-SLAM is only as good as the prediction it gets from `/odom`. If your wheel odometry has 10% slip, scan-matching can't recover and the map looks like spaghetti. **Always tune EKF first (Phase 7.1), THEN run SLAM.** A bad odom → a bad map → a robot that can't localize.
+<SimulatedTerminal
+  title="ROS 2 SLAM Terminal"
+  welcomeMessage={[
+    "ROS 2 Humble — SLAM Mapping Terminal",
+    "LiDAR is running on /scan. Try 'ros2 launch my_robot slam.launch.py' to start mapping.",
+  ]}
+  hintCommands={[
+    "ros2 launch my_robot slam.launch.py",
+    "ros2 topic echo /map --once",
+    "ros2 run nav2_map_server map_saver -f my_map",
+    "ros2 run tf2_ros tf2_echo map odom",
+  ]}
+  commands={[
+    {
+      command: "ros2 launch my_robot slam.launch.py",
+      description: "Launch SLAM — start building the occupancy grid map",
+      output: [
+        "[INFO] [launch]: All log files will be stored in ~/.ros/log",
+        "[INFO] [slam_toolbox-1]: process started with pid [21034]",
+        "[INFO] [slam_toolbox-1]: Loading solver: CeresSolver",
+        "[INFO] [slam_toolbox-1]: Mode: mapping (online_async)",
+        "[INFO] [slam_toolbox-1]: Resolution: 0.05m/pixel",
+        "[INFO] [slam_toolbox-1]: Scan topic: /scan",
+        "[INFO] [slam_toolbox-1]: Max laser range: 20.0m",
+        "[INFO] [slam_toolbox-1]: Loop closure: ENABLED",
+        "[INFO] [slam_toolbox-1]: Listening to /scan...",
+        "[INFO] [slam_toolbox-1]: Processing scan #1 — initializing map...",
+        "[INFO] [slam_toolbox-1]: Processing scan #2 — scan match score: 0.95",
+        "[INFO] [slam_toolbox-1]: Processing scan #50 — map size: 20m x 15m",
+        "[INFO] [slam_toolbox-1]: Loop closure detected! Adjusting map...",
+        "[INFO] [slam_toolbox-1]: Map adjusted by 0.08m (within tolerance)",
+        "[INFO] [slam_toolbox-1]: Publishing /map (400x300 pixels, 5cm res)",
+        "[INFO] [slam_toolbox-1]: Broadcasting map -> odom transform",
+      ],
+    },
+    {
+      command: "ros2 topic echo /map --once",
+      description: "Check the map topic metadata",
+      output: [
+        "header:",
+        "  stamp:",
+        "    sec: 1708214800",
+        "    nanosec: 123456",
+        "  frame_id: map",
+        "info:",
+        "  map_load_time:",
+        "    sec: 0",
+        "  resolution: 0.05",
+        "  width: 400",
+        "  height: 300",
+        "  origin:",
+        "    position: {x: -10.0, y: -7.5, z: 0.0}",
+        "data: [0, 0, 0, ..., 100, 100, ..., -1, -1, ...]",
+        "# 0=Free, 100=Occupied, -1=Unknown",
+        "# 400x300 pixels at 5cm = 20m x 15m map",
+      ],
+    },
+    {
+      command: "ros2 run nav2_map_server map_saver -f my_map",
+      description: "Save the current map to disk (creates .pgm + .yaml)",
+      output: [
+        "[INFO] [map_saver]: Waiting for /map topic...",
+        "[INFO] [map_saver]: Received map: 400x300 at 0.05m/pixel",
+        "[INFO] [map_saver]: Writing map to my_map.pgm...",
+        "[INFO] [map_saver]: Writing metadata to my_map.yaml...",
+        "[INFO] [map_saver]: Map saved successfully!",
+        "# Files created: my_map.pgm (image) + my_map.yaml (metadata)",
+      ],
+    },
+    {
+      command: "ros2 run tf2_ros tf2_echo map odom",
+      description: "Verify SLAM is publishing the map→odom global correction",
+      output: [
+        "At time 1708214800.123456",
+        "- Translation: [0.080, 0.020, 0.000]",
+        "- Rotation: in Quaternion [0.000, 0.000, 0.001, 1.000]",
+        "---",
+        "At time 1708214800.223456",
+        "- Translation: [0.082, 0.021, 0.000]",
+        "- Rotation: in Quaternion [0.000, 0.000, 0.001, 1.000]",
+        "---",
+        "# SLAM is correcting the EKF drift: 8cm offset detected",
+        "# and being applied as the map→odom correction.",
+      ],
+    },
+  ]}
+/>
+
+<Callout type="pitfall" title="CRITICAL Pitfall — The 'Ghosting' Effect (LiDAR Vibrations)">
+If the LiDAR vibrates on a weak bracket, the beams wobble. SLAM perceives **moving walls**, resulting in a "ghost map" where walls appear doubled. This makes the map unusable for navigation.
+
+**The Fix:** Use a rigid mount and increase the `minimum_travel_distance` parameter so SLAM only processes scans when the robot has moved a meaningful distance.
+</Callout>
+
+<Callout type="pitfall" title="CRITICAL Pitfall — The Loop Closure Jump">
+When SLAM realizes the robot has visited a location before, it shifts the entire map to align (loop closure). A large jump (e.g., 1m) can **jerk the steering** of a high-speed controller.
+
+**The Fix:** Keep the EKF well-tuned so accumulated drift stays small. This ensures loop closure jumps remain under 10cm — unnoticeable to the controller.
 </Callout>
 
 ---
 
 ## Nav2 — The Navigation Framework
+
 ### The "Why" & The "How" (The Modular Navigator)
 
-Nav2 is the **production navigation stack**. It's not one algorithm — it's a modular framework where you swap planners (how to find a path), controllers (how to follow it), behaviors (what to do when stuck), and costmaps (how to represent obstacles). All orchestrated by a behavior tree.
+An autonomous robot doesn't just need a path; it needs a **strategy**. It needs to know how to get from Point A to Point B (Global Planning), how to avoid a suddenly appearing obstacle (Local Control), and what to do if it gets stuck (Recovery).
 
-### Costmap Management (Global vs. Local)
+Nav2 is the industry-standard modular framework for this. It replaces the old ROS 1 Navigation Stack with a more robust, plugin-based architecture designed specifically for production-grade robots.
 
-Nav2 maintains **two costmaps**:
+**This is the most important graph in the entire course. Click each server to understand how the autonomous pipeline flows:**
 
-| Costmap | Purpose | Update Rate | Layer Source |
-|---------|---------|-------------|--------------|
-| **Global** | Path planning over the full map | Slow (1-5Hz) | Static map + recorded obstacles |
-| **Local** | Reactive obstacle avoidance | Fast (5-20Hz) | Live LiDAR + camera detections |
+<InteractiveGraph
+  title="The Nav2 Architecture — The Autonomous Pipeline. Click any node to explore."
+  height={440}
+  nodes={[
+    {
+      id: "goal",
+      label: "Goal Pose",
+      subtitle: "User / RViz2 / Mission Planner",
+      icon: "Target",
+      accent: "cyan",
+      position: { x: 50, y: 190 },
+      description: "The navigation goal: 'Go to position (x=5.0, y=3.0)'. Sent as a Nav2 Action goal via /navigate_to_pose. This can come from RViz2 (click on the map), a mission planner script, or a higher-level AI. The BT Navigator receives this goal and orchestrates the entire navigation pipeline.",
+    },
+    {
+      id: "bt_navigator",
+      label: "BT Navigator",
+      subtitle: "The Orchestrator (Behavior Tree)",
+      icon: "Brain",
+      accent: "violet",
+      position: { x: 350, y: 190 },
+      description: "The Behavior Tree Navigator is the brain of Nav2. It runs a Behavior Tree (BT) — a logic tree that decides WHEN to plan, WHEN to follow the path, and WHEN to trigger recovery behaviors. The BT is NOT a state machine — it's a reactive tree that re-evaluates every tick. Default BT: navigate_to_pose_w_replanning_and_recovery.xml",
+    },
+    {
+      id: "planner",
+      label: "Planner Server",
+      subtitle: "Global Path (the 'Line')",
+      icon: "Route",
+      accent: "emerald",
+      position: { x: 650, y: 80 },
+      description: "The Planner Server computes the long-distance path from the robot's current position to the goal. It uses the Global Costmap (static map + known obstacles) and algorithms like Dijkstra or A* to find the shortest route. Runs at 1-2Hz (not every cycle — planning is CPU-intensive). The output is a Path message: a list of (x, y) waypoints.",
+    },
+    {
+      id: "controller",
+      label: "Controller Server",
+      subtitle: "Local Control (the 'Follower')",
+      icon: "Cog",
+      accent: "amber",
+      position: { x: 650, y: 190 },
+      description: "The Controller Server follows the global path. It looks at the path, the Local Costmap (live sensor data), and generates the actual /cmd_vel (velocity + steering) commands. Runs at 20-50Hz. For Ackermann steering: uses Regulated Pure Pursuit (RPP) which looks ahead on the path and steers toward the lookahead point. For diff drive: uses DWB (Dynamic Window Approach).",
+    },
+    {
+      id: "recovery",
+      label: "Recovery Server",
+      subtitle: "When Stuck",
+      icon: "RotateCcw",
+      accent: "rose",
+      position: { x: 650, y: 300 },
+      description: "The Recovery Server activates when the robot is stuck (controller can't make progress). It runs recovery behaviors: Spin (rotate in place — diff drive only!), BackUp (reverse 0.3m), Wait (pause 1s), or ClearCostmap (reset the local costmap). The BT Navigator decides which recovery to try based on the BT logic. For Ackermann: replace Spin with Wait or Replan.",
+    },
+    {
+      id: "cmd_vel",
+      label: "/cmd_vel",
+      subtitle: "Motor Command",
+      icon: "Zap",
+      accent: "teal",
+      position: { x: 950, y: 190 },
+      description: "The final output: a Twist message with linear.x (velocity) and angular.z (steering rate). This goes to the ros2_control diff_drive_controller or ackermann_steering_controller, which converts it to individual wheel commands. The loop is: Goal → Plan → Follow → cmd_vel → Motors → Odometry → EKF → Costmap → Re-plan → ...",
+    },
+  ]}
+  edges={[
+    {
+      id: "e1",
+      source: "goal",
+      target: "bt_navigator",
+      label: "/navigate_to_pose (Action)",
+      animated: true,
+    },
+    {
+      id: "e2",
+      source: "bt_navigator",
+      target: "planner",
+      label: "ComputePathToPose",
+      animated: true,
+    },
+    {
+      id: "e3",
+      source: "bt_navigator",
+      target: "controller",
+      label: "FollowPath (20-50Hz)",
+      animated: true,
+    },
+    {
+      id: "e4",
+      source: "bt_navigator",
+      target: "recovery",
+      label: "if stuck",
+      animated: false,
+    },
+    {
+      id: "e5",
+      source: "controller",
+      target: "cmd_vel",
+      label: "Twist",
+      animated: true,
+    },
+  ]}
+/>
 
-<Callout type="how" title="The How — Why Two Costmaps?">
-The global costmap uses the *static map* (from SLAM) so the planner can find a route around a known wall. The local costmap uses *live sensor data* so the robot can dodge a person who just walked in front of it. If you used only the local, the planner couldn't see beyond sensor range. If only the global, you'd crash into unmapped obstacles.
-</Callout>
+---
 
-<CodeBlock
-  title="config/nav2.yaml"
-  language="yaml"
->{`local_costmap:
-  local_costmap:
-    ros__parameters:
-      update_frequency: 5.0
-      publish_frequency: 2.0
-      global_frame: odom
-      robot_base_frame: base_link
-      rolling_window: true
-      width: 3
-      height: 3
-      resolution: 0.05
-      plugins: ["obstacle_layer", "inflation_layer"]
-      obstacle_layer:
-        plugin: "nav2_costmap_2d::ObstacleLayer"
-        enabled: True
-        observation_sources: scan
-        scan:
-          topic: /scan
-          max_obstacle_height: 2.0
-          clearing: True
-          marking: True
+### Implementation — Nav2 Configuration
 
+<StepByStepCode
+  title="config/nav2_params.yaml"
+  description="The Nav2 configuration — defines controllers, planners, costmaps, and behavior trees. Built in 3 steps."
+  steps={[
+    {
+      title: "Step 1: Controller Server (Regulated Pure Pursuit)",
+      explanation: "For Ackermann steering robots, we use Regulated Pure Pursuit (RPP). It looks ahead on the path by a configurable distance (lookahead_dist) and steers toward that point. The desired_linear_velocity sets the cruising speed. use_velocity_scaled_lookahead_dist dynamically adjusts the lookahead based on speed — faster = look further ahead. min_approach_linear_velocity and use_approach_vel_scaling slow the robot as it nears the goal.",
+      cpp: `// YAML config — see the Python tab`,
+      python: `# config/nav2_params.yaml
+controller_server:
+  ros__parameters:
+    controller_plugins: ["FollowPath"]
+
+    FollowPath:
+      plugin: "nav2_regulated_pure_pursuit_controller::\\
+RegulatedPurePursuitController"
+      desired_linear_velocity: 2.0      # m/s cruising speed
+      lookahead_dist: 0.6               # "eyes" looking ahead
+      min_lookahead_dist: 0.3
+      max_lookahead_dist: 1.0
+      use_velocity_scaled_lookahead_dist: true
+
+      # Ackermann Constraints
+      min_approach_linear_velocity: 0.05
+      use_approach_vel_scaling: true
+      max_allowed_interpolation_dist: 0.1`,
+    },
+    {
+      title: "Step 2: Planner Server + Costmaps",
+      explanation: "The Planner Server uses NavfnPlanner (Dijkstra/A*) to compute the global path on the Global Costmap. The Global Costmap uses the static map + an inflation layer (buffer zone around walls). The Local Costmap is a small rolling window (3m x 3m) around the robot that uses live sensor data (LiDAR) to detect dynamic obstacles. The inflation_radius MUST be >= robot_radius + 0.1m safety margin.",
+      cpp: `// YAML config — see the Python tab`,
+      python: `# ... Step 1 ...
+
+planner_server:
+  ros__parameters:
+    planner_plugins: ["GridBased"]
+    GridBased:
+      plugin: "nav2_navfn_planner/NavfnPlanner"  # Dijkstra/A*
+
+# ── Global Costmap (for Planner) ──
 global_costmap:
   global_costmap:
     ros__parameters:
-      update_frequency: 1.0
+      update_frequency: 1.0       # Hz (slow: static map)
       publish_frequency: 1.0
       global_frame: map
       robot_base_frame: base_link
-      resolution: 0.05
+      resolution: 0.05            # 5cm per cell
       plugins: ["static_layer", "obstacle_layer", "inflation_layer"]
+      inflation_layer:
+        inflation_radius: 0.25    # MUST be >= robot_radius + 0.1m
       static_layer:
-        plugin: "nav2_costmap_2d::StaticLayer"
-        map_subscribe_topic: /map`}
-</CodeBlock>
+        map_subscribe_topic: /map
 
-<Callout type="pitfall" title="CRITICAL Pitfall — Inflation Radius Too Small">
-The `inflation_layer` adds a safety buffer around obstacles. If your `inflation_radius` is smaller than the robot's radius, the planner will generate paths that scrape walls. **Always set `inflation_radius >= robot_radius + 0.1m`** for any mobile robot. A common failure mode: robot gets stuck oscillating in a narrow corridor because the inflation makes every cell impassable.
+# ── Local Costmap (for Controller) ──
+local_costmap:
+  local_costmap:
+    ros__parameters:
+      update_frequency: 5.0       # Hz (fast: live sensors)
+      publish_frequency: 2.0
+      global_frame: odom
+      robot_base_frame: base_link
+      rolling_window: true        # Follows the robot
+      width: 3                    # 3m x 3m window
+      height: 3
+      resolution: 0.05`,
+    },
+    {
+      title: "Step 3: BT Navigator + Launch File",
+      explanation: "The BT Navigator loads a Behavior Tree XML that defines the navigation logic. The default tree replans the path every 1Hz and follows it at the controller's rate. If the robot is stuck (controller reports failure), the BT triggers recovery behaviors. The launch file starts all Nav2 servers and the lifecycle manager that transitions them to 'active' state in the correct order.",
+      cpp: `// YAML + launch — see the Python tab`,
+      python: `# ... Steps 1 & 2 ...
+
+bt_navigator:
+  ros__parameters:
+    bt_loop_duration: 10           # ms per BT tick
+    default_server_timeout: 10     # seconds
+    plugin_lib_names:
+      - nav2_compute_path_to_pose_action_bt_node
+      - nav2_follow_path_action_bt_node
+      - nav2_back_up_action_bt_node
+      - nav2_spin_action_bt_node
+      - nav2_wait_action_bt_node
+      - nav2_clear_costmap_service_bt_node
+    default_nav_to_pose_bt_xml: "navigate_to_pose_w_replanning_and_recovery.xml"
+
+# ── LAUNCH FILE: launch/nav2_bringup.launch.py ──
+import os
+from launch import LaunchDescription
+from launch_ros.actions import Node
+from ament_index_python.packages import \\
+    get_package_share_directory
+
+def generate_launch_description():
+    return LaunchDescription([
+        Node(
+            package='nav2_bringup',
+            executable='navigation_launch.py',
+            name='nav2_bringup',
+            output='screen',
+            parameters=[os.path.join(
+                get_package_share_directory('my_robot'),
+                'config', 'nav2_params.yaml')]
+        )
+    ])
+# Run: ros2 launch my_robot nav2_bringup.launch.py
+# Then send a goal via RViz2 or:
+# ros2 action send_goal /navigate_to_pose \\
+#   nav2_msgs/action/NavigateToPose \\
+#   "{pose: {header: {frame_id: map},
+#            pose: {position: {x: 5.0, y: 3.0, z: 0.0}}}}"`,
+    },
+  ]}
+/>
+
+---
+
+### Testing the Nav2 Stack
+
+**Type the Nav2 commands in the terminal below. Send a navigation goal and watch the mock pipeline execute:**
+
+<SimulatedTerminal
+  title="ROS 2 Nav2 Navigation Terminal"
+  welcomeMessage={[
+    "ROS 2 Humble — Nav2 Navigation Terminal",
+    "Nav2 stack is running. Try 'ros2 lifecycle list /bt_navigator' or send a navigation goal.",
+  ]}
+  hintCommands={[
+    "ros2 lifecycle list /bt_navigator",
+    "ros2 lifecycle set /bt_navigator activate",
+    "ros2 action list",
+    "ros2 action send_goal /navigate_to_pose nav2_msgs/action/NavigateToPose {pose: {header: {frame_id: map}, pose: {position: {x: 5.0, y: 3.0, z: 0.0}}}}",
+    "ros2 topic echo /cmd_vel --once",
+  ]}
+  commands={[
+    {
+      command: "ros2 lifecycle list /bt_navigator",
+      description: "Check the lifecycle state of the BT Navigator",
+      output: [
+        "- configure [primary_state: unconfigured]",
+        "- activate [primary_state: inactive]",
+        "- deactivate [primary_state: active]",
+        "- cleanup [primary_state: inactive]",
+        "- shutdown [primary_state: unconfigured, inactive, active]",
+        "",
+        "# The BT Navigator is currently in 'unconfigured' state.",
+        "# The lifecycle manager will transition it to 'active'.",
+      ],
+    },
+    {
+      command: "ros2 lifecycle set /bt_navigator activate",
+      description: "Manually activate the BT Navigator",
+      output: [
+        "Transitioning successful",
+        "# BT Navigator is now ACTIVE and ready to accept goals.",
+      ],
+    },
+    {
+      command: "ros2 action list",
+      description: "List all available Nav2 actions",
+      output: [
+        "/navigate_to_pose [nav2_msgs/action/NavigateToPose]",
+        "/compute_path_to_pose [nav2_msgs/action/ComputePathToPose]",
+        "/follow_path [nav2_msgs/action/FollowPath]",
+        "/backup [nav2_msgs/action/BackUp]",
+        "/spin [nav2_msgs/action/Spin]",
+        "/wait [nav2_msgs/action/Wait]",
+      ],
+    },
+    {
+      command: "ros2 action send_goal /navigate_to_pose nav2_msgs/action/NavigateToPose {pose: {header: {frame_id: map}, pose: {position: {x: 5.0, y: 3.0, z: 0.0}}}}",
+      description: "Send a navigation goal — watch the full pipeline execute",
+      output: [
+        "Waiting for an action server to become available...",
+        "Sending goal:",
+        "     pose:",
+        "       header: {frame_id: map}",
+        "       pose: {position: {x: 5.0, y: 3.0, z: 0.0}}",
+        "",
+        "Goal accepted with ID: 1e4b3c...",
+        "",
+        "[INFO] [bt_navigator]: Goal received. Starting navigation...",
+        "[INFO] [planner_server]: Computing path to (5.0, 3.0)...",
+        "[INFO] [planner_server]: Path found! 42 waypoints, 7.2m total length.",
+        "[INFO] [controller_server]: Following path with RPP controller...",
+        "[INFO] [controller_server]: Lookahead point: (0.6, 0.0), velocity: 1.5 m/s",
+        "[INFO] [controller_server]: Lookahead point: (1.2, 0.3), velocity: 1.8 m/s",
+        "[INFO] [controller_server]: Lookahead point: (2.1, 0.8), velocity: 2.0 m/s",
+        "[INFO] [controller_server]: Approaching goal. Slowing down...",
+        "[INFO] [controller_server]: Lookahead point: (4.8, 2.9), velocity: 0.3 m/s",
+        "",
+        "Result:",
+        "     result: {path_length: 7.2}",
+        "",
+        "Goal finished with status: SUCCEEDED",
+      ],
+    },
+    {
+      command: "ros2 topic echo /cmd_vel --once",
+      description: "Check the current velocity command being sent to the motors",
+      output: [
+        "---",
+        "linear:",
+        "  x: 1.8",
+        "  y: 0.0",
+        "  z: 0.0",
+        "angular:",
+        "  x: 0.0",
+        "  y: 0.0",
+        "  z: 0.15",
+        "---",
+        "# Robot is driving forward at 1.8 m/s, turning slightly left (0.15 rad/s)",
+      ],
+    },
+  ]
+}
+/>
+
+<Callout type="pitfall" title="CRITICAL Pitfall — The 'Plan vs Control' Frequency Mismatch">
+Planning a 50m path is CPU-intensive. The Pitfall: running the Global Planner at 20Hz. If it takes 100ms to compute, the steering becomes **jerky** because the controller has to wait for the new path.
+
+**Best Practice:** Run the Planner at **1-2Hz** (replan once or twice per second) and the Controller at **20-50Hz** (smooth, reactive control). The BT Navigator handles this automatically via its replanning logic.
 </Callout>
 
-<Callout type="best-practice" title="Best Practice — Tune the Controller Before the Planner">
-If the robot drives poorly (overshooting turns, oscillating), it's almost always the **controller**, not the planner. Start by tuning the DWB / RPP controller's `max_vel` and `critial_xy_vel`, confirm smooth tracking on straight lines, THEN tune the planner's path simplification. Inverting this order wastes hours.
+<Callout type="pitfall" title="CRITICAL Pitfall — The 'Latching' Trap (Ackermann)">
+Default Behavior Trees might try to **Spin** (rotate in place) to recover from being stuck. An Ackermann steering robot **cannot spin in place** — it has a minimum turning radius. The spin command will produce zero motion and the robot will be permanently stuck.
+
+**The Fix:** Replace the default BT's `Spin` recovery with `Wait` or `Replan` logic. Use the `nav2_behaviors` plugin to define custom recovery behaviors that respect Ackermann kinematics.
 </Callout>
 
-<TerminalBlock title="bash">
-{`# Launch the full Nav2 stack
-ros2 launch nav2_bringup navigation_launch.py params_file:=config/nav2.yaml
+<Callout type="pitfall" title="CRITICAL Pitfall — Footprint vs. Radius">
+Never use `robot_radius` for a rectangular robot. A circle over-approximates the corners, causing the robot to avoid gaps it could actually fit through.
 
-# Send a navigation goal from the CLI / RViz2
-ros2 action send_goal /navigate_to_pose nav2_msgs/action/NavigateToPose \\
-  "{pose: {header: {frame_id: map}, pose: {position: {x: 2.0, y: 1.0, z: 0.0}}}}"}`}
-</TerminalBlock>
+**Best Practice:** Define an explicit **Footprint** (list of [x, y] coordinates for the 4 corners) so Nav2 ensures no corner clips a wall. This is especially critical for Ackermann vehicles with long wheelbases.
+</Callout>
+
+<Callout type="best-practice" title="Best Practice — Costmap Inflation Tuning">
+Walls in a map are single lines of pixels. If a path is planned right next to those pixels, the robot's physical width will cause a collision. The **Inflation Layer** creates a buffer zone. Set `inflation_radius >= robot_radius + 0.1m` safety margin. For tight spaces: tune it to be as tight as possible while still preventing collisions.
+</Callout>
 
 ---
 
