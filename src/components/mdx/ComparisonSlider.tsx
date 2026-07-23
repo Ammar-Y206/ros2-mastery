@@ -63,12 +63,15 @@ const ACCENT_STYLES = {
 } as const;
 
 /**
- * ComparisonSlider — a visual before/after comparison component where the
- * learner drags a divider to reveal the two architectural states. The left
- * side (before) and right side (after) each show a list of characteristics.
+ * ComparisonSlider — a visual before/after comparison component.
  *
- * Uses a draggable handle that clips the "after" panel over the "before"
- * panel.
+ * The LEFT side (before) is always visible. The RIGHT side (after) is
+ * revealed as the user drags the divider from left to right.
+ *
+ * Key fix: each panel takes exactly 50% width and is positioned on its
+ * own side. The "after" panel is clipped via `width` + `overflow-hidden`
+ * on a wrapper that grows from `position%` to 100%. This prevents the
+ * text overlap bug where both panels occupied the same absolute space.
  */
 export function ComparisonSlider({
   before,
@@ -135,8 +138,11 @@ export function ComparisonSlider({
         onMouseDown={startDrag}
         onTouchStart={startDrag}
       >
-        {/* Before (left side, full width underneath) */}
-        <div className="absolute inset-0">
+        {/* ── Before (LEFT half — always fully visible) ── */}
+        <div
+          className="absolute left-0 top-0 h-full overflow-hidden"
+          style={{ width: "50%" }}
+        >
           <SidePanel
             title={before.title}
             items={before.items}
@@ -145,20 +151,29 @@ export function ComparisonSlider({
           />
         </div>
 
-        {/* After (right side, clipped to position) */}
+        {/* ── After (RIGHT half — revealed by drag) ──
+            This wrapper sits on the right side. Its width grows from
+            `position%` to 100% as the user drags right, revealing the
+            "after" content. The inner panel is fixed at 50% width so
+            its text layout never changes — only the clip window changes. */}
         <div
-          className="absolute inset-0 overflow-hidden"
-          style={{ clipPath: `inset(0 0 0 ${position}%)` }}
+          className="absolute right-0 top-0 h-full overflow-hidden"
+          style={{ width: `${100 - position}%` }}
         >
-          <SidePanel
-            title={after.title}
-            items={after.items}
-            accent={afterAccent}
-            side="after"
-          />
+          <div
+            className="absolute right-0 top-0 h-full"
+            style={{ width: "50%" }}
+          >
+            <SidePanel
+              title={after.title}
+              items={after.items}
+              accent={afterAccent}
+              side="after"
+            />
+          </div>
         </div>
 
-        {/* Drag handle */}
+        {/* ── Drag handle ── */}
         <div
           className="absolute top-0 bottom-0 z-20 flex w-1 cursor-col-resize items-center justify-center bg-cyan-400 shadow-lg shadow-cyan-500/50"
           style={{ left: `${position}%`, transform: "translateX(-50%)" }}
@@ -171,7 +186,7 @@ export function ComparisonSlider({
           </div>
         </div>
 
-        {/* Side labels */}
+        {/* ── Side labels ── */}
         <div className="pointer-events-none absolute left-3 top-3 z-10 rounded-md border border-border/60 bg-background/80 px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-muted-foreground backdrop-blur-sm">
           ← Before
         </div>
@@ -213,8 +228,7 @@ function SidePanel({
           accent.text
         )}
       >
-        {side === "after" && <span>{title}</span>}
-        {side === "before" && <span>{title}</span>}
+        {title}
       </h4>
       <ul
         className={cn(
