@@ -44,7 +44,7 @@ export const COURSE_PHASES: NavPhase[] = [
       "Adhere to the ROS 2 SOP to maintain professional-grade code stability.",
     ],
     accent: "cyan",
-    icon: "Network",
+    icon: "Brain",
     modules: [
       { id: "phase-1/middleware", title: "What is Robotics Middleware?", slug: "what-is-robotics-middleware", readingTime: 6 },
       { id: "phase-1/philosophy", title: "Microservices / Nervous System Analogy", slug: "microservices-nervous-system-analogy", readingTime: 4 },
@@ -88,7 +88,7 @@ export const COURSE_PHASES: NavPhase[] = [
       "Utilize Rosbag2 as a 'Flight Data Recorder' and RViz2 as our visual eyes.",
     ],
     accent: "violet",
-    icon: "SlidersHorizontal",
+    icon: "Terminal",
     modules: [
       { id: "phase-3/parameters", title: "Parameters (Dynamic Configuration)", slug: "parameters-dynamic-configuration", readingTime: 9 },
       { id: "phase-3/launch", title: "The Launch System", slug: "the-launch-system", readingTime: 8 },
@@ -108,7 +108,7 @@ export const COURSE_PHASES: NavPhase[] = [
       "Master TF2 Listeners and Broadcasters to maintain a perfect 3D transform tree.",
     ],
     accent: "amber",
-    icon: "Box",
+    icon: "Compass",
     modules: [
       { id: "phase-4/tf2", title: "TF2 (The Transform Framework)", slug: "tf2-the-transform-framework", readingTime: 12 },
     ],
@@ -126,7 +126,7 @@ export const COURSE_PHASES: NavPhase[] = [
       "Orchestrate complex shared-memory containers for vision-heavy perception tasks.",
     ],
     accent: "rose",
-    icon: "Cpu",
+    icon: "Layers",
     modules: [
       { id: "phase-5/composition", title: "Composition (Component Nodes)", slug: "composition-component-nodes", readingTime: 10 },
       { id: "phase-5/lifecycle", title: "Managed Nodes (Lifecycle)", slug: "managed-nodes-lifecycle-nodes", readingTime: 9 },
@@ -164,7 +164,7 @@ export const COURSE_PHASES: NavPhase[] = [
       "Orchestrate the Nav2 Framework to compute paths and avoid obstacles.",
     ],
     accent: "teal",
-    icon: "Satellite",
+    icon: "Rocket",
     modules: [
       { id: "phase-7/ekf", title: "Sensor Fusion & State Estimation (EKF)", slug: "sensor-fusion-state-estimation-ekf", readingTime: 10 },
       { id: "phase-7/slam", title: "Perception & Mapping (SLAM)", slug: "perception-mapping-slam", readingTime: 9 },

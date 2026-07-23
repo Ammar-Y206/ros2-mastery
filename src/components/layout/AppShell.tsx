@@ -149,19 +149,15 @@ export function AppShell({ moduleId, children }: AppShellProps) {
         </button>
       )}
 
-      <footer className="mt-auto border-t border-border/60 bg-background/80 py-4 backdrop-blur">
-        <div className="mx-auto flex max-w-7xl flex-col items-center justify-between gap-2 px-4 text-xs text-muted-foreground sm:flex-row sm:px-6">
-          <p>
-            <span className="font-semibold text-foreground/80">ROS2 Mastery</span>{" "}
-            · A 7-phase strategic roadmap to production robotics
-          </p>
-          <p className="flex items-center gap-3">
-            <span>Progress saved locally</span>
-            <span className="opacity-40">·</span>
+      <footer className="mt-auto border-t border-border/40 py-4">
+        <div className="mx-auto flex max-w-7xl flex-col items-center justify-between gap-2 px-4 text-xs text-muted-foreground/60 sm:flex-row sm:px-6">
+          <p>© 2024 ROS2 Mastery. Open-source learning platform.</p>
+          <div className="flex items-center gap-3">
             <span className="hidden sm:inline">Press </span>
-            <kbd className="hidden sm:inline-flex h-5 items-center rounded border border-border bg-muted px-1.5 font-mono text-[10px]">?</kbd>
-            <span className="hidden sm:inline"> for shortcuts</span>
-          </p>
+            <kbd className="hidden sm:inline-flex h-5 items-center rounded border border-border/40 bg-muted/50 px-1.5 font-mono text-[10px]">?</kbd>
+            <span className="hidden sm:inline">for shortcuts</span>
+            <span className="rounded-full border border-border/40 px-2 py-0.5 font-mono text-[10px] font-medium opacity-50">v1.0</span>
+          </div>
         </div>
       </footer>
 
