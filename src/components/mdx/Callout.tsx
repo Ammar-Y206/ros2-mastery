@@ -83,14 +83,11 @@ const CALLOUT_CONFIG: Record<CalloutType, CalloutConfig> = {
       // rose-500 #f43f5e
       borderLeftColor: "#f43f5e",
       backgroundColor: "rgba(244, 63, 94, 0.06)",
-      // subtle red glow
-      boxShadow:
-        "0 0 0 1px rgba(244,63,94,0.25), 0 0 28px rgba(244,63,94,0.20)",
     },
     containerClass: "border border-l-4 border-l-rose-500 border-rose-500/20",
     iconWrapperClass: "bg-rose-500/10 text-rose-400 ring-1 ring-rose-500/40",
     titleClass: "text-rose-300",
-    glowClass: "ring-1 ring-rose-500/30",
+    glowClass: "ring-1 ring-rose-500/30 pitfall-pulse",
   },
 };
 

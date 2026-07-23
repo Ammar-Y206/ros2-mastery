@@ -162,6 +162,22 @@
   .text-balance {
     text-wrap: balance;
   }
+  /* Pulsing glow for CRITICAL pitfall callouts */
+  .pitfall-pulse {
+    animation: pitfall-pulse-glow 2.5s ease-in-out infinite;
+  }
+  @keyframes pitfall-pulse-glow {
+    0%, 100% {
+      box-shadow:
+        0 0 0 1px rgba(244, 63, 94, 0.25),
+        0 0 20px rgba(244, 63, 94, 0.15);
+    }
+    50% {
+      box-shadow:
+        0 0 0 1px rgba(244, 63, 94, 0.4),
+        0 0 32px rgba(244, 63, 94, 0.3);
+    }
+  }
   /* MDX prose-like content styling */
   .prose-doc {
     @apply text-[0.95rem] leading-7;

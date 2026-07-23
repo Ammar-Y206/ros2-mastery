@@ -10,8 +10,21 @@ import { Callout } from "@/components/mdx/Callout";
 import { CodeBlock } from "@/components/mdx/CodeBlock";
 import { TerminalBlock } from "@/components/mdx/TerminalBlock";
 import { Quiz } from "@/components/mdx/Quiz";
+import { InteractiveGraph } from "@/components/mdx/InteractiveGraph";
+import { StepByStepCode } from "@/components/mdx/StepByStepCode";
+import { SimulatedTerminal } from "@/components/mdx/SimulatedTerminal";
+import { ComparisonSlider } from "@/components/mdx/ComparisonSlider";
 
-const MDX_COMPONENTS = { Callout, CodeBlock, TerminalBlock, Quiz };
+const MDX_COMPONENTS = {
+  Callout,
+  CodeBlock,
+  TerminalBlock,
+  Quiz,
+  InteractiveGraph,
+  StepByStepCode,
+  SimulatedTerminal,
+  ComparisonSlider,
+};
 
 interface PageProps {
   searchParams: Promise<{ m?: string; view?: string }>;

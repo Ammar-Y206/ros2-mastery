@@ -857,3 +857,160 @@ No critical bugs found — all 7 phases + all routes returned HTTP 200 with zero
 4. **Add phase connector lines** — dashed vertical line connecting phase numbers on the overview to reinforce the "roadmap" concept (deferred from this round).
 5. **Add a "dark mode code blocks" toggle** — let users choose whether code blocks stay dark in light mode.
 6. **Add a hero spotlight gradient** — radial gradient behind the headline for a "spotlight" effect.
+
+---
+Task ID: 4
+Agent: full-stack-developer (SimulatedTerminal)
+Task: Build SimulatedTerminal component
+
+Work Log:
+- Read worklog.md (last 50 lines) to understand project context — existing ROS2 learning platform with mdx components (TerminalBlock, CodeBlock, Quiz, Callout) and dark/cyan theme conventions.
+- Reviewed existing `TerminalBlock.tsx` to align visual styling (mac traffic-light dots `#ff5f56/#ffbd2e/#27c93f`, header `bg-[#11161d]`, body `bg-[#0a0e14]`, Fira Code/JetBrains Mono stack, cyan `$` prefix).
+- Created `/home/z/my-project/src/components/mdx/SimulatedTerminal.tsx` as a `"use client"` interactive mock terminal:
+  - Defined `SimulatedCommand` and `SimulatedTerminalProps` interfaces exactly per spec.
+  - Mac-style window header with 3 traffic-light dots (left), centered title with `Terminal` lucide icon, right-side spacer for balance.
+  - Body: `bg-[#0a0e14]`, monospace stack, `max-h-80 overflow-y-auto`.
+  - Welcome message rendered initially in muted green (`text-emerald-300/50 italic`).
+  - Active prompt line: cyan `$` prefix + transparent input with cyan caret (`caret-cyan-400`) and light grey text; placeholder shown when empty.
+  - Submit flow (Enter): echoes `$ <command>`, looks up the command case-insensitively + trimmed in a `commandMap`, renders matching output lines or a rose-red `command not found: <input>. Try one of the hint commands above.` message, clears input, resets history index.
+  - Line classification helper `classifyLine`: `#`-prefixed → comment (italic muted green); contains `INFO` → cyan; contains `ERROR`/`not found` → rose; default → light grey; empty → blank spacer.
+  - Hint chips above the terminal (cyan border, monospace, hover brightens); clicking a chip fills the input and focuses it with caret at end — does NOT auto-run.
+  - Command history with ArrowUp/ArrowDown navigation (optional feature).
+  - `useRef` for scroll container (auto-scroll via `useEffect` on `lines`) and input; clicking anywhere on the terminal focuses the input (`focusInput` on the outer `div`'s `onClick`, with `stopPropagation` on the form to avoid double events).
+  - Used `lucide-react` `Terminal` icon in header per spec.
+- Ran `bun run lint` → 0 errors, 0 warnings.
+
+Stage Summary:
+- Delivered a fully interactive, mock ROS2 CLI terminal component that gives learners a "safe playground" to type commands and see pre-programmed outputs.
+- Matches the existing TerminalBlock visual language (mac window, dark bg, cyan accents, monospace) so it composes naturally inside MDX lesson content.
+- Supports the required mock outputs out of the box: e.g. `ros2 node list` → `/telemetry_monitor`, and `ros2 node info /telemetry_monitor` → the Subscribers/Publishers/Service Servers tree.
+- Bonus UX: arrow-key command history, caret placement after hint click, click-anywhere-to-focus, line-type-aware coloring (comments/INFO/ERROR/default).
+- Lint clean. No breaking changes to existing components.
+
+---
+Task ID: 3
+Agent: full-stack-developer (StepByStepCode)
+Task: Build StepByStepCode component
+
+Work Log:
+- Read /home/z/my-project/worklog.md (last 50 lines) to understand project context — a Next.js 16 ROS2 learning platform with an existing MDX component family (CodeBlock, Callout, Quiz, TerminalBlock).
+- Reviewed the existing `CodeBlock.tsx` to mirror its visual language (oneDark Prism theme, `#0d1117` body, `#161b22` header, cyan accents) and to copy the proven `useCopyToClipboard`, language-tab sync with `useProgressStore`, and SyntaxHighlighter prop patterns.
+- Confirmed `animate-fade-in` keyframe + animation already exist in `tailwind.config.ts` (no need to add CSS).
+- Confirmed the `react-syntax-highlighter.d.ts` minimal type declarations (only expose `style`, `customStyle`, `showLineNumbers`, `lineNumberStyle`, `wrapLongLines`). The `wrapLines` + `lineProps` callback required for per-line highlight tinting is NOT in the type — handled with a single targeted `@ts-expect-error` comment rather than expanding the shared declaration file (lowest-blast-radius approach).
+- Built `/home/z/my-project/src/components/mdx/StepByStepCode.tsx` with:
+  - `'use client'` directive.
+  - Exported `CodeStep` and `StepByStepCodeProps` interfaces matching the spec exactly (`title`, `explanation`, `cpp`, `python`, optional `highlightLines?: number[]`).
+  - `useState` for current step index + an `animKey` counter that bumps on every navigation to retrigger the `animate-fade-in` animation by remounting the code area (`key={animKey}`).
+  - Header: file title with Terminal icon + step indicator badge ("Step X of N") + optional description paragraph.
+  - Horizontal step indicator: `<ol>` of numbered circular buttons separated by flex-1 connecting line segments. Current step = cyan border/bg + cyan text + `motion-safe:animate-ping` ring for pulse. Completed steps = emerald check icon (using `Check` from lucide). Future steps = slate. Lines before the current index are cyan (`from-cyan-400 to-cyan-400`); after are slate-700. Each dot is a real `<button>` so learners can jump to any step, with `aria-current="step"` on the active one and descriptive `aria-label`s.
+  - Explanation callout below the indicator: cyan-tinted box with a 2px cyan left border, a numbered badge, the step title (cyan-100), and the explanation text (slate-300).
+  - Code area with C++/Python tabs that sync to the global `preferredLanguage` in `useProgressStore` (same pattern as CodeBlock). Right side of the tab bar shows an "adds N lines" label and a "★ highlighted" badge when `highlightLines` is provided.
+  - SyntaxHighlighter using Prism + oneDark, matching CodeBlock's `customStyle` / `lineNumberStyle` / `codeTagProps` for visual consistency. Per-line highlighting via `wrapLines` + `lineProps` callback: highlighted lines get `rgba(34,211,238,0.07)` background + cyan left border.
+  - Navigation footer: "Previous" button (left, disabled with reduced opacity on step 1) using `ChevronLeft`. Centered status text ("N steps remaining" / "You're at the final step"). "Next Step" button (right) is a cyan→teal gradient with a `ChevronRight` arrow and a soft cyan glow shadow. On the last step the right button becomes "Restart" with a `RotateCcw` icon (using lucide-react's `RotateCcw`, `ChevronLeft`, `ChevronRight`, `Check` exactly as specified).
+  - Defensive guards: returns `null` for empty `steps`; clamps `current` to `[0, total-1]` so any out-of-range state can't crash; `React.Fragment` keys for the indicator dots+lines.
+  - Mobile-friendly: Previous button label hidden on `<sm`, step dots are 28px (44px touch target via padding from parent), tabs and status text collapse gracefully.
+- Ran `bun run lint 2>&1 | tail -20` → output was just `$ eslint .` with zero errors and zero warnings.
+- Checked `dev.log` tail: server is healthy, `GET / 200` responses under 100ms, no compile errors related to the new component.
+
+Stage Summary:
+- Created `/home/z/my-project/src/components/mdx/StepByStepCode.tsx` (~300 lines) — a progressive, accessible, dark-themed code-reveal component with cyan accents that fits the existing MDX family's visual language.
+- Lint: 0 errors, 0 warnings. Dev server: serving `/` with HTTP 200, no new errors in `dev.log`.
+- Features delivered: numbered dot step indicator with pulse-on-current + check-on-completed + clickable navigation; cyan-tinted explanation callout with left border; C++/Python tabs synced to global language preference; per-line highlight tinting via `highlightLines`; fade-in animation on every step transition (including restart); Previous/Next footer with gradient Next button that morphs into a Restart button on the final step; full ARIA labeling and keyboard-accessible buttons; responsive layout (sm: breakpoints hide long labels on mobile).
+- Reusable: exports both named (`StepByStepCode`, `CodeStep`, `StepByStepCodeProps`) and default — ready to wire into MDX components / course content.
+
+---
+Task ID: 2
+Agent: full-stack-developer (InteractiveGraph)
+Task: Build InteractiveGraph component using ReactFlow
+
+Work Log:
+- Read worklog.md (last 50 lines) to understand project context — a Next.js 16 ROS2 learning platform with an established MDX component set (Callout, CodeBlock, Quiz, TerminalBlock) using a dark cyan-accented theme.
+- Verified `@xyflow/react@^12.11.2` and `lucide-react@0.525.0` are already installed; inspected type defs for `Node`, `NodeProps`, `Edge`, `NodeTypes`, `useNodesState`/`useEdgesState` to confirm correct v12 generic signatures.
+- Created `/home/z/my-project/src/components/mdx/InteractiveGraph.tsx` as a `'use client'` component.
+- Implemented the three exported prop interfaces exactly as specified (`InteractiveGraphNode`, `InteractiveGraphEdge`, `InteractiveGraphProps`).
+- Defined the literal `ACCENT_MAP` (cyan/emerald/violet/amber/rose/sky/teal) with `border`/`bg`/`text`/`ring` fields per spec.
+- Built a dynamic lucide-icon resolver (`resolveIcon`) using the `icons` registry export, with PascalCase direct lookup + kebab/snake→Pascal fallback + `Circle` fallback.
+- Defined a module-level custom node `RosNode` (typed via `NodeProps<GraphNodeType>`) rendering a rounded accent-bordered card with icon, label, subtitle, and `ring-2 ring-cyan-400/60 shadow-lg shadow-cyan-500/20` when selected. Handles use `!bg-current` + accent text color to avoid adding a `dot` field to `ACCENT_MAP`.
+- Memoized `nodeTypes = { rosNode: RosNode }` at module scope (v12 best practice).
+- Wrote a `withAutoLayout` helper that assigns a grid position (4 cols, 220×120 spacing) to any node lacking an explicit `position`.
+- Mapped props → ReactFlow nodes (`type: 'rosNode'`, data passthrough) and edges (`type: 'smoothstep'`, animated flag, styled monospace label pills via `labelBgPadding`/`labelBgBorderRadius`/`labelBgStyle`/`labelStyle`, cyan stroke for animated edges / slate for static).
+- Wired `useNodesState`/`useEdgesState` + `onNodeClick`/`onPaneClick` to track a `selectedId` for the detail panel (kept in sync with ReactFlow's internal `selected` flag).
+- Rendered `<ReactFlow>` with `Background` (Dots variant, cyan-tinted) + `Controls` (styled to match the dark theme), `fitView`, hidden attribution, zoom limits.
+- Built the detail panel below the canvas: shows the selected node's icon/label/subtitle/description with an accent-colored border, or a "Click a node to learn more." hint (with `MousePointerClick` icon) when nothing is selected. Uses `aria-live="polite"` for accessibility.
+- First lint run hit 2 errors from the `react-hooks/static-components` rule (it flagged `const Icon = resolveIcon(...)` + `<Icon />` as "creating a component during render"). Fixed by introducing a stable module-level `LucideIconRenderer` component that resolves the icon and renders it via `React.createElement(resolveIcon(name), { className })` — eliminating the capitalized-variable-during-render pattern. Replaced both `<Icon/>` (in RosNode) and `<SelectedIcon/>` (in the detail panel) usages with `<LucideIconRenderer name=... className=... />`.
+- Re-ran `bun run lint` → 0 errors, 0 warnings.
+- Checked `dev.log` — server healthy (HTTP 200s, no compile errors).
+
+Stage Summary:
+- Delivered `src/components/mdx/InteractiveGraph.tsx` (~445 lines): a fully interactive, dark-themed ROS2 computation-graph visualizer.
+- Feature checklist (all met):
+  - `'use client'` directive ✓
+  - Imports from `@xyflow/react` (ReactFlow, Background, BackgroundVariant, Controls, Handle, Position, useNodesState, useEdgesState, type Node/Edge/NodeProps) ✓
+  - CSS import `@xyflow/react/dist/style.css` ✓
+  - `nodeTypes` memoized at module scope ✓
+  - Custom node card: icon + label + subtitle + accent border; glowing cyan ring + shadow when selected ✓
+  - smoothstep edges with animated dashed flow + monospace pill labels ✓
+  - Dots-variant Background + styled Controls (pan/zoom/click) ✓
+  - Dark `bg-[#0a0e1a]` canvas, `bg-card` nodes ✓
+  - Dynamic lucide-react icon rendering by name ✓
+  - Detail panel below: shows selected node description, or "Click a node to learn more." hint ✓
+  - Auto-layout fallback for nodes without explicit positions ✓
+  - Accessibility: `aria-live` panel, `aria-hidden` decorative icons, semantic `<figure>/<figcaption>` ✓
+- Lint: 0 errors, 0 warnings.
+- Ready to be consumed from MDX content (e.g. a Phase graph of Camera → Perception → Control → Motors). No page route changes required.
+
+---
+Task ID: 18 (Interactive EdTech Transformation)
+Agent: Main (orchestrator)
+Task: Transform flat documentation into a world-class interactive learning environment with InteractiveGraph, StepByStepCode, SimulatedTerminal, ComparisonSlider, and enhanced pitfall callouts.
+
+## Current Project Status Assessment
+The platform was stable from Round 10 with all features working. The user requested an "Elevated Experience" transformation — replacing flat text with interactive React components. No critical bugs found.
+
+## Completed Modifications
+
+### New Interactive Components Created (5 files)
+1. **`src/components/mdx/InteractiveGraph.tsx`** — interactive ROS2 Computation Graph visualizer using `@xyflow/react` (ReactFlow v12). Clickable nodes with accent-colored borders, glowing ring when selected. Shows a detail panel below with the node's description. Used for the Nervous System analogy (Camera → Perception → Control).
+
+2. **`src/components/mdx/StepByStepCode.tsx`** — progressive code reveal component. Breaks the Telemetry Node implementation into 4 logical steps (Class Inheritance, Constructor, Timer, Callback+main). Step indicator with numbered dots, "Next Step" / "Previous" navigation, C++/Python tabs synced to global language preference. Fade-in animation on step change.
+
+3. **`src/components/mdx/SimulatedTerminal.tsx`** — mock terminal UI where learners type ROS2 CLI commands and see pre-programmed outputs. Mac-style window, cyan prompt, clickable hint command chips, command history (ArrowUp/Down). Supports 10 commands (ros2 node list, ros2 node info, ros2 run, colcon build, etc.) with realistic mock outputs.
+
+4. **`src/components/mdx/ComparisonSlider.tsx`** — visual before/after drag slider. The learner drags a cyan divider to compare "Monolithic C++ Program" (rose, 8 problems) vs "ROS 2 Middleware Architecture" (emerald, 8 solutions). Mouse + touch support, position indicator.
+
+5. **Enhanced `Callout.tsx` pitfall** — added `pitfall-pulse` CSS animation class that creates a pulsing red glow (2.5s ease-in-out infinite). The glow intensifies at 50% of the cycle (box-shadow from 20px to 32px, opacity from 0.15 to 0.3). Added `@keyframes pitfall-pulse-glow` to globals.css.
+
+### MDX Pipeline Registration
+6. **`mdx-components.tsx`** — registered all 4 new components (InteractiveGraph, StepByStepCode, SimulatedTerminal, ComparisonSlider)
+7. **`page.tsx`** — added all 4 new components to the MDX_COMPONENTS map
+8. **`next.config.ts`** — added `remark-heading-id` plugin (installed but ultimately not needed since `{#slug}` syntax conflicts with MDX v3 — removed from content)
+
+### Content Transformation
+9. **`src/content/phase-1.mdx`** — completely rewritten with interactive components:
+   - **Section 1.1 (Middleware)**: replaced flat "monolithic vs middleware" text with `<ComparisonSlider>` — drag to compare 8 monolithic problems vs 8 ROS2 solutions
+   - **Section 1.2 (Nervous System)**: replaced flat "Eyes → Brain → Legs" text with `<InteractiveGraph>` — 3 clickable nodes (Camera/Perception/Control) with descriptions, animated edges with message labels
+   - **Section 1.4.1 (The Node)**: replaced 40-line C++ code dump with `<StepByStepCode>` — 4 progressive steps (Inheritance → Constructor → Timer → Callback+main), each with explanation + C++/Python tabs
+   - **Section 1.4.3 (SOP)**: replaced flat CLI command blocks with `<SimulatedTerminal>` — 10 pre-programmed commands with realistic mock outputs, hint chips, command history
+   - All `{#slug}` heading IDs removed (incompatible with MDX v3) — `rehype-slug` auto-generates IDs
+   - All "Fayoum Racing Team" references already removed in previous rounds — content is generalized to "autonomous mobile robot"
+
+## Verification Results
+- **All 7 phases + all routes**: HTTP 200, zero console errors
+- **ComparisonSlider**: confirmed present (2 elements), draggable
+- **InteractiveGraph**: confirmed 1 ReactFlow canvas renders, nodes clickable
+- **StepByStepCode**: confirmed "Step 1: Class Inheritance" shows, "Next Step" button advances to "Step 2: The Constructor"
+- **SimulatedTerminal**: confirmed typing "ros2 node list" + Enter shows "/telemetry_monitor" output
+- **Callout pitfall**: confirmed 6 pitfall callouts with `pitfall-pulse` class
+- **Lint**: 0 errors, 0 warnings
+
+## Unresolved Issues / Risks
+- **None critical** — all interactive components working as designed
+- **Minor**: The `remark-heading-id` plugin was installed but is NOT used — `{#slug}` syntax is incompatible with MDX v3's JSX expression parser. The plugin can be uninstalled. Headings use `rehype-slug` for auto-generated IDs instead.
+- **Minor**: The InteractiveGraph uses `@xyflow/react` which adds ~100KB to the bundle. This is acceptable for the interactive experience it provides.
+
+## Priority Recommendations for Next Phase
+1. **Expand the interactive approach to Phases 2-7** — apply the same InteractiveGraph, StepByStepCode, SimulatedTerminal, and ComparisonSlider patterns to the other phases.
+2. **Add more SimulatedTerminal commands** — expand the command set to include `ros2 topic echo`, `ros2 service call`, etc.
+3. **Add InteractiveGraph for Topics/Services/Actions** — show the pub/sub graph, client/server graph, and action goal/feedback/result graph.
+4. **Add a "Skill Tree" visual** for the left sidebar — phases unlock visually when the previous is marked done.
+5. **Add code execution simulation** — let learners "run" the StepByStepCode and see mock log output.
