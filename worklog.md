@@ -1014,3 +1014,61 @@ The platform was stable from Round 10 with all features working. The user reques
 3. **Add InteractiveGraph for Topics/Services/Actions** — show the pub/sub graph, client/server graph, and action goal/feedback/result graph.
 4. **Add a "Skill Tree" visual** for the left sidebar — phases unlock visually when the previous is marked done.
 5. **Add code execution simulation** — let learners "run" the StepByStepCode and see mock log output.
+
+---
+Task ID: 19 (Phase 2 Interactive Transformation)
+Agent: Main (orchestrator)
+Task: Apply the "Golden Template" to Phase 2 — transform flat Phase 2 PDF text (Topics, Services, Actions) into an interactive MDX experience using the 5 established interactive components.
+
+## Current Project Status Assessment
+Phase 1 was complete with the 5 core interactive components (StepByStepCode, SimulatedTerminal, InteractiveGraph, ComparisonSlider, enhanced Callout). The user requested applying the same Golden Template to Phase 2. No critical bugs found — all routes returned HTTP 200.
+
+## Completed Modifications
+
+### Content Transformation (1 file rewritten)
+1. **`src/content/phase-2.mdx`** — completely rewritten with interactive components:
+
+**Topics (Continuous Data Streams):**
+- Replaced flat "Why/How" text with `<InteractiveGraph>` showing the Pub/Sub DDS pattern: 1 LiDAR Publisher → 5 Subscribers (Mapping, Obstacle Avoidance, RViz2, Rosbag2, Safety Watchdog). Each node is clickable with a detailed description. 5 animated edges all labeled `/scan`.
+- Replaced 30+ lines of C++/Python Publisher code with `<StepByStepCode>` (3 steps: Class & Constructor, Create Publisher & Timer, Callback + main).
+- Replaced 30+ lines of C++/Python Subscriber code with a SECOND `<StepByStepCode>` (3 steps: Class & Constructor, Create Subscription, Callback + main).
+- Replaced flat CLI command blocks with `<SimulatedTerminal>` (5 commands: ros2 topic list -t, ros2 topic echo, ros2 topic hz, ros2 topic info --verbose, ros2 topic list) with realistic mock outputs (topic list, data stream, Hz rate, QoS profile).
+- Added `<Callout type="pitfall">` for QoS Mismatch and Missing Placeholder.
+
+**Services (Synchronous Requests):**
+- Replaced flat "Why/How" Client/Server text with `<ComparisonSlider>` comparing "Topics (Fire-and-Forget)" (8 amber characteristics) vs "Services (Guaranteed Request/Response)" (8 cyan characteristics).
+- Replaced PID Server C++/Python code with `<StepByStepCode>` (3 steps: Class & Constructor, Create Service Server, Callback + main).
+- Replaced Service Client C++/Python code with `<StepByStepCode>` (3 steps: Class & Constructor, Send Request Async, Response Callback + main) — with emphasis on async to avoid the deadlock trap.
+- Added `<SimulatedTerminal>` (4 commands: ros2 service list, ros2 service list -t, ros2 service info, ros2 service call) with mock outputs.
+- Added `<Callout type="pitfall">` for the CRITICAL Deadlock Trap with pulsing red glow.
+
+**Actions (Asynchronous Tasks):**
+- Replaced flat "Why/How" text with `<InteractiveGraph>` showing the 3-way Action communication: Client → Goal → Server, Server → Feedback → Client, Server → Result → Client. 5 nodes (Client, Goal, Feedback, Result, Server) with 6 edges. Each node clickable with detailed descriptions explaining the Goal Handle, proactive cancellation, and the 3 communication channels.
+- Replaced Action Client C++/Python code with `<StepByStepCode>` (4 steps: Class & Action Client Creation, Send Goal Async, Goal Response + Feedback Safety Trigger, Result Callback + main).
+- Wrapped ALL "Best Practices & Pitfalls" in glowing red `<Callout type="pitfall">` — 4 pitfall callouts: Spamming Cancel Requests, Losing the Goal Handle (Python), Handling Server Rejection, plus the Deadlock Trap from Services.
+- Added `<SimulatedTerminal>` (3 commands: ros2 action list -t, ros2 action info, ros2 action send_goal -f) with realistic mock outputs including feedback stream.
+
+### Generalization Rule Applied
+- All "Fayoum Racing Team" / "Fayoum Racer" / racing-specific references removed
+- "autonomous race car" → "autonomous mobile robot"
+- "track" → "environment" where appropriate
+- "racing_interfaces" → "robot_interfaces" in code examples
+- Kept the rigorous pedagogical flow (Why → How → Code → CLI → Pitfalls)
+
+## Verification Results
+- **All 7 phases + overview**: HTTP 200, zero console errors
+- **Phase 2 interactive components**: 2 ComparisonSliders, 2 InteractiveGraphs, StepByStepCode present, SimulatedTerminals present, 6 pitfall Callouts with pulsing glow
+- **InteractiveGraph node click**: confirmed shows node description
+- **StepByStepCode Next button**: confirmed advances to Step 2
+- **SimulatedTerminal**: confirmed typing "ros2 topic list -t" + Enter shows "/vehicle/speed" output
+- **Lint**: 0 errors, 0 warnings
+
+## Unresolved Issues / Risks
+- **None critical** — all interactive components working as designed
+- **Minor**: The Phase 2 MDX file is large (~700 lines) due to the 3 StepByStepCode blocks each with 3-4 steps × C++/Python. This is necessary for the comprehensive interactive experience.
+
+## Priority Recommendations for Next Phase
+1. **Apply the Golden Template to Phase 3** — Parameters, Launch System, Debugging. Use InteractiveGraph for the parameter server architecture, StepByStepCode for the dynamic parameter node, SimulatedTerminal for ros2 param CLI commands.
+2. **Apply the Golden Template to Phases 4-7** — continue the interactive transformation.
+3. **Add a "Skill Tree" visual** for the left sidebar — phases unlock visually when the previous is marked done.
+4. **Add code execution simulation** — let learners "run" the StepByStepCode and see mock log output.

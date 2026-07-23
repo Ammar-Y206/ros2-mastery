@@ -20,16 +20,117 @@ ROS 2 provides three distinct communication patterns, each engineered for a spec
 | **Service** | Request/Response | Synchronous, blocking | Hardware triggers, configuration |
 | **Action** | Goal/Feedback/Result | Asynchronous, long-running | Navigation, manipulation |
 
+---
+
 ## Topics — Continuous Data Streams
+
 ### The "Why"
 
-Imagine an autonomous vehicle driving at 30 km/h. The LiDAR is spinning at 10Hz, generating thousands of data points per second. The motor controller needs constant updates on the target velocity.
+Imagine an autonomous mobile robot driving at 30 km/h. The LiDAR is spinning at 10Hz, generating thousands of data points per second. The motor controller needs constant updates on the target velocity.
 
 You cannot use a "Request/Response" system for this. The motor controller shouldn't have to constantly ask, *"What is my speed now? How about now?"* Topics exist to solve the need for **continuous, decoupled, unidirectional data streams**.
 
-### The "How" (Architecture Level)
+### The "How" — The DDS Pub/Sub Pattern
 
-Under the hood, Topics use the DDS **Publish/Subscribe** pattern.
+Under the hood, Topics use the DDS **Publish/Subscribe** pattern. **Click the LiDAR node in the graph below to see how one publisher feeds five independent subscribers:**
+
+<InteractiveGraph
+  title="The Pub/Sub Pattern — One LiDAR, Five Subscribers. Click any node to explore."
+  height={400}
+  nodes={[
+    {
+      id: "lidar",
+      label: "LiDAR Node",
+      subtitle: "Publisher",
+      icon: "Radar",
+      accent: "cyan",
+      position: { x: 50, y: 150 },
+      description: "The LiDAR Node is the sole publisher on the /scan topic. It reads raw sensor data from the LiDAR hardware, packages it into a standard LaserScan message, and broadcasts it at 10Hz. It has no idea who is listening — it just publishes. This is the 'fire-and-forget' model.",
+    },
+    {
+      id: "mapping",
+      label: "Mapping Node",
+      subtitle: "Subscriber",
+      icon: "Map",
+      accent: "emerald",
+      position: { x: 450, y: 30 },
+      description: "The Mapping Node subscribes to /scan to build a 2D occupancy grid of the environment. It processes each LaserScan to determine where walls and obstacles are, updating the costmap in real-time.",
+    },
+    {
+      id: "obstacle",
+      label: "Obstacle Avoidance",
+      subtitle: "Subscriber",
+      icon: "ShieldAlert",
+      accent: "amber",
+      position: { x: 450, y: 110 },
+      description: "The Obstacle Avoidance Node subscribes to /scan to detect imminent collisions. If an obstacle appears within the safety zone, it can override the planner's velocity command and trigger emergency braking.",
+    },
+    {
+      id: "visualizer",
+      label: "RViz2 Visualizer",
+      subtitle: "Subscriber",
+      icon: "Eye",
+      accent: "violet",
+      position: { x: 450, y: 190 },
+      description: "RViz2 subscribes to /scan to render the LiDAR point cloud visually on the 3D grid. This is your 'eyes' into what the robot sees — critical for debugging perception pipelines during development.",
+    },
+    {
+      id: "logger",
+      label: "Rosbag2 Recorder",
+      subtitle: "Subscriber",
+      icon: "Database",
+      accent: "sky",
+      position: { x: 450, y: 270 },
+      description: "Rosbag2 subscribes to /scan to record every LaserScan message to disk. This is your 'flight data recorder' — you can replay the exact sensor stream offline to debug failures that happened on the track.",
+    },
+    {
+      id: "watchdog",
+      label: "Safety Watchdog",
+      subtitle: "Subscriber",
+      icon: "HeartPulse",
+      accent: "rose",
+      position: { x: 450, y: 350 },
+      description: "The Safety Watchdog subscribes to /scan to monitor the LiDAR's heartbeat. If the data stream stops (node crash, cable disconnect), it triggers an emergency stop within 100ms — before the robot drives blind.",
+    },
+  ]}
+  edges={[
+    {
+      id: "e1",
+      source: "lidar",
+      target: "mapping",
+      label: "/scan",
+      animated: true,
+    },
+    {
+      id: "e2",
+      source: "lidar",
+      target: "obstacle",
+      label: "/scan",
+      animated: true,
+    },
+    {
+      id: "e3",
+      source: "lidar",
+      target: "visualizer",
+      label: "/scan",
+      animated: true,
+    },
+    {
+      id: "e4",
+      source: "lidar",
+      target: "logger",
+      label: "/scan",
+      animated: true,
+    },
+    {
+      id: "e5",
+      source: "lidar",
+      target: "watchdog",
+      label: "/scan",
+      animated: true,
+    },
+  ]}
+/>
 
 - **Decoupled & Anonymous:** A node publishing to a topic has no idea who is listening. A node subscribing to a topic has no idea who is sending the data. They only care about the **Topic Name** (e.g. `/vehicle/speed`) and the **Message Type** (e.g. `std_msgs/Float32`).
 - **Many-to-Many:** One LiDAR node can publish to `/scan`. Five different nodes (Mapping, Obstacle Avoidance, Visualizer, Data Logger, Safety Watchdog) can all subscribe to `/scan` simultaneously without bottlenecking the publisher.
@@ -46,42 +147,1350 @@ A topic is defined by three things:
 - **Publishers:** Wheel encoders publishing the current physical velocity; a camera driver continuously publishing raw image frames; an IMU publishing linear acceleration and angular velocity.
 - **Subscribers:** The dashboard UI listening to the velocity to display a speedometer; the perception algorithm subscribing to the camera frames to detect obstacles; the Extended Kalman Filter (EKF) subscribing to the IMU to calculate exact vehicle pose.
 
-## Services — Synchronous Requests
-### The "Why" & The "How" (Client/Server Architecture)
+---
 
-Some operations are inherently **request/response**: *"Reset the encoder counter now,"* *"What is the current battery voltage?"* These are short, discrete, and must confirm success. Services model this exactly — a synchronous Client/Server pattern over the ROS graph.
+### Implementation — The Publisher
 
-<Callout type="pitfall" title="CRITICAL Pitfall — The Deadlock Trap">
-Never call a service synchronously from inside a callback that is serviced by the same Single-Threaded Executor as the server. The client blocks waiting for a response that the executor can never deliver — a classic **deadlock**. Always use the async client API (`async_send_request`) inside callbacks.
-</Callout>
+We will build a **SpeedPublisher** that simulates reading a wheel encoder and broadcasting the vehicle's speed at 10Hz. We use the standard ROS 2 message type: `std_msgs/msg/Float32`.
 
-## Actions — Asynchronous, Long-Running Tasks
-### The "Why" & The "How" (Proactive Cancellation)
+**Build the Publisher step by step — click "Next Step" to progress:**
 
-Actions are the most sophisticated primitive. They wrap a long-running goal (e.g. "navigate to coordinate X,Y") with three channels:
+<StepByStepCode
+  title="src/speed_publisher.cpp"
+  description="The SpeedPublisher node — broadcasts vehicle speed at 10Hz on the /vehicle/speed topic. Built in 3 logical steps."
+  steps={[
+    {
+      title: "Step 1: Class & Constructor",
+      explanation: "We create a SpeedPublisher class that inherits from rclcpp::Node. In the constructor, we name the node 'speed_sensor_node' and initialize our speed to 0.0. This name is what appears in 'ros2 node list'.",
+      cpp: `#include <chrono>
+#include <memory>
+#include "rclcpp/rclcpp.hpp"
+#include "std_msgs/msg/float32.hpp"
 
-1. **Goal** — the request ("drive to X,Y")
-2. **Feedback** — periodic progress ("40% there, current pose is...")
-3. **Result** — the final outcome ("arrived in 12.3 seconds")
+using namespace std::chrono_literals;
 
-<Callout type="best-practice" title="Best Practice — Proactive Cancellation Safety">
-If a new higher-priority goal arrives (e.g. an obstacle appears mid-navigation), you must **cancel the running goal** before accepting the new one. ROS 2 Actions support proactive cancellation — always implement the cancel callback to safely halt actuators before the new goal takes control.
-</Callout>
+class SpeedPublisher : public rclcpp::Node
+{
+public:
+  SpeedPublisher() : Node("speed_sensor_node"), current_speed_(0.0)
+  {
+    // Publisher and Timer will be created here (Step 2)
 
-<TerminalBlock title="bash">
-{`# Inspect the action graph
-ros2 action list
-ros2 action info /navigate_to_pose
-ros2 action send_goal /navigate_to_pose nav2_msgs/action/NavigateToPose "{pose: {pose: {position: {x: 1.0, y: 2.0, z: 0.0}}}}"`}
-</TerminalBlock>
+    RCLCPP_INFO(this->get_logger(), "Speed Publisher initialized on /vehicle/speed");
+  }
+
+private:
+  // Callback will go here (Step 3)
+  rclcpp::TimerBase::SharedPtr timer_;
+  float current_speed_;
+};`,
+      python: `import rclpy
+from rclpy.node import Node
+from std_msgs.msg import Float32
+
+class SpeedPublisher(Node):
+    def __init__(self):
+        super().__init__('speed_sensor_node')
+        self.current_speed_ = 0.0
+
+        # Publisher and Timer will be created here (Step 2)
+
+        self.get_logger().info('Speed Publisher initialized on /vehicle/speed')
+
+    # Callback will go here (Step 3)`,
+    },
+    {
+      title: "Step 2: Create the Publisher & Timer",
+      explanation: "We create a Publisher that broadcasts std_msgs/msg/Float32 messages on the /vehicle/speed topic with a QoS history depth of 10 (buffers the last 10 messages for late-joining subscribers). Then we create a wall timer that fires every 100ms (10Hz) to trigger the publish loop.",
+      cpp: `class SpeedPublisher : public rclcpp::Node
+{
+public:
+  SpeedPublisher() : Node("speed_sensor_node"), current_speed_(0.0)
+  {
+    // 1. Create the Publisher.
+    // Syntax: create_publisher<MessageType>("topic_name", qos_history_depth)
+    publisher_ = this->create_publisher<std_msgs::msg::Float32>(
+      "/vehicle/speed", 10);
+
+    // 2. Create a timer to fire at 10Hz (100ms)
+    timer_ = this->create_wall_timer(
+      100ms, std::bind(&SpeedPublisher::timer_callback, this));
+
+    RCLCPP_INFO(this->get_logger(), "Speed Publisher initialized on /vehicle/speed");
+  }
+
+private:
+  // Callback (Step 3)
+  rclcpp::TimerBase::SharedPtr timer_;
+  rclcpp::Publisher<std_msgs::msg::Float32>::SharedPtr publisher_;
+  float current_speed_;
+};`,
+      python: `class SpeedPublisher(Node):
+    def __init__(self):
+        super().__init__('speed_sensor_node')
+        self.current_speed_ = 0.0
+
+        # 1. Create the Publisher
+        self.publisher_ = self.create_publisher(
+            Float32, '/vehicle/speed', 10)
+
+        # 2. Create a timer to fire at 10Hz (0.1 seconds)
+        self.timer_ = self.create_timer(0.1, self.timer_callback)
+
+        self.get_logger().info('Speed Publisher initialized on /vehicle/speed')
+
+    # Callback (Step 3)`,
+    },
+    {
+      title: "Step 3: The Callback + main()",
+      explanation: "The timer_callback fires every 100ms. It instantiates a Float32 message, sets its data field to the current speed, publishes it to the DDS network, then simulates acceleration by incrementing the speed by 0.5 m/s. The main() function follows the standard ROS 2 lifecycle: init → create → spin → shutdown.",
+      cpp: `class SpeedPublisher : public rclcpp::Node
+{
+public:
+  SpeedPublisher() : Node("speed_sensor_node"), current_speed_(0.0)
+  {
+    publisher_ = this->create_publisher<std_msgs::msg::Float32>(
+      "/vehicle/speed", 10);
+    timer_ = this->create_wall_timer(
+      100ms, std::bind(&SpeedPublisher::timer_callback, this));
+    RCLCPP_INFO(this->get_logger(), "Speed Publisher initialized on /vehicle/speed");
+  }
+
+private:
+  void timer_callback()
+  {
+    // 3. Instantiate the message object
+    auto message = std_msgs::msg::Float32();
+    message.data = current_speed_;
+
+    // 4. Publish the message to the DDS network
+    publisher_->publish(message);
+
+    // Simulate slight acceleration
+    current_speed_ += 0.5;
+  }
+
+  rclcpp::TimerBase::SharedPtr timer_;
+  rclcpp::Publisher<std_msgs::msg::Float32>::SharedPtr publisher_;
+  float current_speed_;
+};
+
+int main(int argc, char * argv[])
+{
+  rclcpp::init(argc, argv);
+  rclcpp::spin(std::make_shared<SpeedPublisher>());
+  rclcpp::shutdown();
+  return 0;
+}`,
+      python: `class SpeedPublisher(Node):
+    def __init__(self):
+        super().__init__('speed_sensor_node')
+        self.current_speed_ = 0.0
+        self.publisher_ = self.create_publisher(
+            Float32, '/vehicle/speed', 10)
+        self.timer_ = self.create_timer(0.1, self.timer_callback)
+        self.get_logger().info('Speed Publisher initialized on /vehicle/speed')
+
+    def timer_callback(self):
+        # 3. Instantiate the message object
+        msg = Float32()
+        msg.data = self.current_speed_
+
+        # 4. Publish the message
+        self.publisher_.publish(msg)
+
+        self.current_speed_ += 0.5
+
+def main(args=None):
+    rclpy.init(args=args)
+    rclpy.spin(SpeedPublisher())
+    rclpy.shutdown()
+
+if __name__ == '__main__':
+    main()`,
+    },
+  ]}
+/>
 
 ---
 
-<Callout type="best-practice" title="Choosing the Right Primitive">
+### Implementation — The Subscriber
+
+Now we build a **DashboardSubscriber** that listens to `/vehicle/speed` and displays it. **Build it step by step:**
+
+<StepByStepCode
+  title="src/speed_subscriber.cpp"
+  description="The DashboardSubscriber node — listens to /vehicle/speed and logs each incoming message. Built in 3 logical steps."
+  steps={[
+    {
+      title: "Step 1: Class & Constructor",
+      explanation: "The DashboardSubscriber also inherits from rclcpp::Node. We name it 'dashboard_node'. Like the publisher, it needs a constructor — but instead of creating a publisher, it will create a subscription.",
+      cpp: `#include <memory>
+#include "rclcpp/rclcpp.hpp"
+#include "std_msgs/msg/float32.hpp"
+
+using std::placeholders::_1;
+
+class DashboardSubscriber : public rclcpp::Node
+{
+public:
+  DashboardSubscriber() : Node("dashboard_node")
+  {
+    // Subscription will be created here (Step 2)
+
+    RCLCPP_INFO(this->get_logger(), "Dashboard ready, listening to /vehicle/speed");
+  }
+
+private:
+  // Callback will go here (Step 3)
+  rclcpp::Subscription<std_msgs::msg::Float32>::SharedPtr subscription_;
+};`,
+      python: `import rclpy
+from rclpy.node import Node
+from std_msgs.msg import Float32
+
+class DashboardSubscriber(Node):
+    def __init__(self):
+        super().__init__('dashboard_node')
+
+        # Subscription will be created here (Step 2)
+
+        self.get_logger().info('Dashboard ready, listening to /vehicle/speed')
+
+    # Callback will go here (Step 3)`,
+    },
+    {
+      title: "Step 2: Create the Subscription",
+      explanation: "We create a Subscription that listens to the /vehicle/speed topic with message type Float32. The QoS depth is 10 (matching the publisher). The second argument to create_subscription is the callback function — std::bind hooks our member function 'topic_callback' to fire whenever a new message arrives.",
+      cpp: `class DashboardSubscriber : public rclcpp::Node
+{
+public:
+  DashboardSubscriber() : Node("dashboard_node")
+  {
+    // 1. Create the Subscription.
+    // Syntax: create_subscription<MessageType>(
+    //   "topic_name", qos_depth, callback_function)
+    subscription_ = this->create_subscription<std_msgs::msg::Float32>(
+      "/vehicle/speed", 10,
+      std::bind(&DashboardSubscriber::topic_callback, this, _1));
+
+    RCLCPP_INFO(this->get_logger(), "Dashboard ready, listening to /vehicle/speed");
+  }
+
+private:
+  // Callback (Step 3)
+  rclcpp::Subscription<std_msgs::msg::Float32>::SharedPtr subscription_;
+};`,
+      python: `class DashboardSubscriber(Node):
+    def __init__(self):
+        super().__init__('dashboard_node')
+
+        # 1. Create the Subscription
+        self.subscription_ = self.create_subscription(
+            Float32,
+            '/vehicle/speed',
+            self.topic_callback,
+            10)
+
+        self.get_logger().info('Dashboard ready, listening to /vehicle/speed')
+
+    # Callback (Step 3)`,
+    },
+    {
+      title: "Step 3: The Callback + main()",
+      explanation: "The topic_callback fires every time a new Float32 message arrives on /vehicle/speed. In C++, the message arrives as a const SharedPointer — this is CRITICAL for performance (see the pitfall below). We simply log the received speed. The main() function follows the standard lifecycle.",
+      cpp: `class DashboardSubscriber : public rclcpp::Node
+{
+public:
+  DashboardSubscriber() : Node("dashboard_node")
+  {
+    subscription_ = this->create_subscription<std_msgs::msg::Float32>(
+      "/vehicle/speed", 10,
+      std::bind(&DashboardSubscriber::topic_callback, this, _1));
+    RCLCPP_INFO(this->get_logger(), "Dashboard ready, listening to /vehicle/speed");
+  }
+
+private:
+  // 2. The Callback — receives the message as a const SharedPointer
+  void topic_callback(const std_msgs::msg::Float32::SharedPtr msg) const
+  {
+    RCLCPP_INFO(this->get_logger(), "Speed: %.2f m/s", msg->data);
+  }
+
+  rclcpp::Subscription<std_msgs::msg::Float32>::SharedPtr subscription_;
+};
+
+int main(int argc, char * argv[])
+{
+  rclcpp::init(argc, argv);
+  rclcpp::spin(std::make_shared<DashboardSubscriber>());
+  rclcpp::shutdown();
+  return 0;
+}`,
+      python: `class DashboardSubscriber(Node):
+    def __init__(self):
+        super().__init__('dashboard_node')
+        self.subscription_ = self.create_subscription(
+            Float32,
+            '/vehicle/speed',
+            self.topic_callback,
+            10)
+        self.get_logger().info('Dashboard ready, listening to /vehicle/speed')
+
+    # 2. The Callback — receives the message
+    def topic_callback(self, msg):
+        self.get_logger().info(f'Speed: {msg.data:.2f} m/s')
+
+def main(args=None):
+    rclpy.init(args=args)
+    rclpy.spin(DashboardSubscriber())
+    rclpy.shutdown()
+
+if __name__ == '__main__':
+    main()`,
+    },
+  ]}
+/>
+
+<Callout type="best-practice" title="Best Practice — Zero-Copy Pointers in C++">
+Notice in the C++ subscriber, the callback argument is `const std_msgs::msg::Float32::SharedPtr msg`. We pass by a **constant shared pointer**. For a simple float, it doesn't matter. But if that message is a 15-megabyte PointCloud from a 3D LiDAR, passing by value would cause a massive memory copy, creating a catastrophic CPU spike. **Always use pointers for message callbacks.**
+</Callout>
+
+<Callout type="pitfall" title="CRITICAL Pitfall — The Missing Placeholder in C++">
+When binding the callback in `create_subscription`, engineers often forget the `std::placeholders::_1`. This tells C++ that the callback function expects exactly one argument (the incoming message). Without `_1`, the code will refuse to compile with a deeply confusing template error.
+</Callout>
+
+---
+
+### Inspecting the Data Stream — CLI Tools
+
+Nodes are black boxes once compiled. If the robot's steering is erratic, you don't know if the perception node is calculating the wrong angles, or if the motor controller is failing to execute them. You need to **"tap the wire"** and read the data mid-flight.
+
+**Try each CLI command in the simulated terminal below. Type `ros2 topic list -t` to see active topics with their message types:**
+
+<SimulatedTerminal
+  title="ROS 2 Topic Inspector"
+  welcomeMessage={[
+    "ROS 2 Humble — Topic Inspection Terminal",
+    "Type 'ros2 topic list -t' to see active topics, or try the hint commands below.",
+  ]}
+  hintCommands={[
+    "ros2 topic list -t",
+    "ros2 topic echo /vehicle/speed",
+    "ros2 topic hz /vehicle/speed",
+    "ros2 topic info /vehicle/speed --verbose",
+  ]}
+  commands={[
+    {
+      command: "ros2 topic list -t",
+      description: "List all active topics with their message types",
+      output: [
+        "/parameter_events [rcl_interfaces/msg/ParameterEvent]",
+        "/rosout [rcl_interfaces/msg/Log]",
+        "/vehicle/speed [std_msgs/msg/Float32]",
+      ],
+    },
+    {
+      command: "ros2 topic echo /vehicle/speed",
+      description: "Wiretap — see the actual data payload on the topic",
+      output: [
+        "data: 0.5",
+        "---",
+        "data: 1.0",
+        "---",
+        "data: 1.5",
+        "---",
+        "data: 2.0",
+      ],
+    },
+    {
+      command: "ros2 topic hz /vehicle/speed",
+      description: "Heartbeat monitor — measure the publish rate",
+      output: [
+        "average rate: 9.998",
+        "min: 0.100s max: 0.100s std dev: 0.00014s window: 10",
+      ],
+    },
+    {
+      command: "ros2 topic info /vehicle/speed --verbose",
+      description: "Graph inspector — see publishers, subscribers, and QoS",
+      output: [
+        "Type: std_msgs/msg/Float32",
+        "Publisher count: 1",
+        "  Node name: speed_sensor_node",
+        "  QoS profile:",
+        "    Reliability: RELIABLE",
+        "    History (Depth): KEEP_LAST (10)",
+        "    Durability: VOLATILE",
+        "Subscriber count: 1",
+        "  Node name: dashboard_node",
+        "  QoS profile:",
+        "    Reliability: RELIABLE",
+        "    History (Depth): KEEP_LAST (10)",
+      ],
+    },
+    {
+      command: "ros2 topic list",
+      description: "List all active topics (without types)",
+      output: [
+        "/parameter_events",
+        "/rosout",
+        "/vehicle/speed",
+      ],
+    },
+  ]}
+/>
+
+<Callout type="pitfall" title="CRITICAL Pitfall — QoS Mismatch">
+You are trying to stream a high-resolution camera to a dashboard UI. The camera node is running, the UI node is running, but the screen is black. You run `ros2 topic info /camera/image_raw --verbose` and discover the Camera Publisher is set to **Best Effort** QoS, but the UI Subscriber is strictly demanding **Reliable** QoS. The middleware is **silently blocking the connection**. Always verify QoS compatibility with `--verbose`.
+</Callout>
+
+---
+
+## Services — Synchronous Requests
+
+### The "Why" & The "How" (Client/Server Architecture)
+
+Topics use a **"fire-and-forget"** broadcast model. If you publish a message to enable the emergency brakes on a Topic, the Publisher has no idea if the motor controller actually received it or acted on it.
+
+For critical, one-off commands, you need a **Request/Response** architecture. You need a guarantee. A Service allows one node (the Client) to send a specific Request to another node (the Server) and pause its own high-level logic until it receives a concrete Response (Success/Failure).
+
+**Drag the slider to compare Topics (fire-and-forget) vs Services (guaranteed request/response):**
+
+<ComparisonSlider
+  label="Topics vs. Services — drag to compare the communication models"
+  before={{
+    title: "Topics (Fire-and-Forget)",
+    accent: "amber",
+    items: [
+      "Broadcast model — publisher doesn't know who's listening",
+      "No guarantee of delivery — messages can be lost",
+      "Continuous stream — data flows at a fixed rate",
+      "Many-to-Many — unlimited publishers and subscribers",
+      "Publisher fires and moves on — no response expected",
+      "Best for: sensor streams, telemetry, state broadcasts",
+      "Example: LiDAR publishing /scan at 10Hz to 5 subscribers",
+      "No blocking — the publisher never waits",
+    ]
+  }}
+  after={{
+    title: "Services (Guaranteed Request/Response)",
+    accent: "cyan",
+    items: [
+      "Client/Server model — direct 1-to-1 connection",
+      "Guaranteed delivery — response confirms execution",
+      "One-off command — fire once, get a result",
+      "Many-to-1 — multiple clients, one server",
+      "Client blocks until response arrives (or timeout)",
+      "Best for: hardware triggers, configuration, calibration",
+      "Example: /ekf/reset — call once, get 'Reset Complete'",
+      "Synchronous — the client waits for confirmation",
+    ]
+  }}
+/>
+
+Under the hood in the DDS layer, a ROS 2 Service is actually constructed using **two hidden, paired DDS Topics**:
+- The Client publishes to a hidden Request topic with a unique Sequence ID.
+- The Server processes the request and publishes to a hidden Reply topic with the same Sequence ID.
+- The Client matches the ID, accepts the response, and resumes.
+
+<Callout type="how" title="The How — Service Anatomy">
+Unlike Topics, Services are **1-to-1** (or Many-to-1). Only one node can act as the Service Server, though multiple clients can send it requests. This ensures there's a single source of truth for the service's state.
+</Callout>
+
+### Real-world Use Cases
+
+- **Resetting the EKF:** If your robot spins out and the `robot_localization` node loses its pose estimation, you don't stream "reset" at 10Hz. You call an `/ekf/reset` service once, and the EKF replies "Reset Complete" so the planner knows it can safely resume navigation.
+- **Sensor Calibration Routine:** Triggering the steering servo to sweep from lock-to-lock to find its center before operation begins.
+- **State Management:** Changing the state of the PID controller (e.g., toggling it from Active to Inactive) using a boolean flag.
+
+---
+
+### Implementation — The Service Server
+
+We will build a **PID_State_Manager** node. It hosts a service that allows other nodes to turn the autonomous steering PID controller on or off. We use the standard `std_srvs/srv/SetBool` interface.
+
+**Build the PID Server step by step:**
+
+<StepByStepCode
+  title="src/pid_server.cpp"
+  description="The PIDServer node — hosts a /control/toggle_pid service that turns the PID controller on/off. Built in 3 logical steps."
+  steps={[
+    {
+      title: "Step 1: Class & Constructor",
+      explanation: "The PIDServer inherits from rclcpp::Node. We name it 'pid_manager_node' and initialize pid_active_ to false. The constructor will create the service server in the next step. A SetBool request contains a boolean 'data' field. The response contains a boolean 'success' and a string 'message'.",
+      cpp: `#include <memory>
+#include "rclcpp/rclcpp.hpp"
+#include "std_srvs/srv/set_bool.hpp"
+
+using std::placeholders::_1;
+using std::placeholders::_2;
+
+class PIDServer : public rclcpp::Node
+{
+public:
+  PIDServer() : Node("pid_manager_node"), pid_active_(false)
+  {
+    // Service will be created here (Step 2)
+
+    RCLCPP_INFO(this->get_logger(), "PID Manager Service Ready on /control/toggle_pid");
+  }
+
+private:
+  // Callback will go here (Step 3)
+  rclcpp::Service<std_srvs::srv::SetBool>::SharedPtr service_;
+  bool pid_active_;
+};`,
+      python: `import rclpy
+from rclpy.node import Node
+from std_srvs.srv import SetBool
+
+class PIDServer(Node):
+    def __init__(self):
+        super().__init__('pid_manager_node')
+        self.pid_active_ = False
+
+        # Service will be created here (Step 2)
+
+        self.get_logger().info('PID Manager Service Ready on /control/toggle_pid')
+
+    # Callback will go here (Step 3)`,
+    },
+    {
+      title: "Step 2: Create the Service Server",
+      explanation: "We create a Service Server that listens on /control/toggle_pid with the SetBool interface. The callback 'handle_toggle_request' will fire every time a client calls this service. std::bind hooks the callback with two placeholders (_1 for the request, _2 for the response).",
+      cpp: `class PIDServer : public rclcpp::Node
+{
+public:
+  PIDServer() : Node("pid_manager_node"), pid_active_(false)
+  {
+    // 1. Create the Service Server.
+    service_ = this->create_service<std_srvs::srv::SetBool>(
+      "/control/toggle_pid",
+      std::bind(&PIDServer::handle_toggle_request, this, _1, _2));
+
+    RCLCPP_INFO(this->get_logger(), "PID Manager Service Ready on /control/toggle_pid");
+  }
+
+private:
+  // Callback (Step 3)
+  rclcpp::Service<std_srvs::srv::SetBool>::SharedPtr service_;
+  bool pid_active_;
+};`,
+      python: `class PIDServer(Node):
+    def __init__(self):
+        super().__init__('pid_manager_node')
+        self.pid_active_ = False
+
+        # 1. Create the Service Server
+        self.srv = self.create_service(
+            SetBool,
+            '/control/toggle_pid',
+            self.handle_toggle_request)
+
+        self.get_logger().info('PID Manager Service Ready on /control/toggle_pid')
+
+    # Callback (Step 3)`,
+    },
+    {
+      title: "Step 3: The Callback + main()",
+      explanation: "The handle_toggle_request callback receives a SharedPointer to the Request and a SharedPointer to the Response. We read request->data (true = engage, false = disengage), update our state, populate response->success = true and response->message with a status string. In C++, the Executor automatically sends the response when the callback returns. In Python, you MUST return the response object explicitly.",
+      cpp: `class PIDServer : public rclcpp::Node
+{
+public:
+  PIDServer() : Node("pid_manager_node"), pid_active_(false)
+  {
+    service_ = this->create_service<std_srvs::srv::SetBool>(
+      "/control/toggle_pid",
+      std::bind(&PIDServer::handle_toggle_request, this, _1, _2));
+    RCLCPP_INFO(this->get_logger(), "PID Manager Service Ready on /control/toggle_pid");
+  }
+
+private:
+  // 2. The Service Callback
+  void handle_toggle_request(
+    const std::shared_ptr<std_srvs::srv::SetBool::Request> request,
+    std::shared_ptr<std_srvs::srv::SetBool::Response> response)
+  {
+    pid_active_ = request->data;
+
+    if (pid_active_) {
+      RCLCPP_INFO(this->get_logger(), "Engaging PID Controller...");
+      response->message = "PID Successfully Engaged.";
+    } else {
+      RCLCPP_WARN(this->get_logger(), "Disengaging PID Controller!");
+      response->message = "PID Successfully Disengaged.";
+    }
+    response->success = true;
+    // Executor automatically sends the response back to the Client
+  }
+
+  rclcpp::Service<std_srvs::srv::SetBool>::SharedPtr service_;
+  bool pid_active_;
+};
+
+int main(int argc, char **argv) {
+  rclcpp::init(argc, argv);
+  rclcpp::spin(std::make_shared<PIDServer>());
+  rclcpp::shutdown();
+  return 0;
+}`,
+      python: `class PIDServer(Node):
+    def __init__(self):
+        super().__init__('pid_manager_node')
+        self.pid_active_ = False
+        self.srv = self.create_service(
+            SetBool, '/control/toggle_pid', self.handle_toggle_request)
+        self.get_logger().info('PID Manager Service Ready on /control/toggle_pid')
+
+    # 2. The Service Callback
+    def handle_toggle_request(self, request, response):
+        self.pid_active_ = request.data
+
+        if self.pid_active_:
+            self.get_logger().info('Engaging PID Controller...')
+            response.message = 'PID Successfully Engaged.'
+        else:
+            self.get_logger().warning('Disengaging PID Controller!')
+            response.message = 'PID Successfully Disengaged.'
+
+        response.success = True
+
+        # In Python, you MUST return the response object
+        return response
+
+def main(args=None):
+    rclpy.init(args=args)
+    node = PIDServer()
+    rclpy.spin(node)
+    node.destroy_node()
+    rclpy.shutdown()
+
+if __name__ == '__main__':
+    main()`,
+    },
+  ]}
+/>
+
+---
+
+### Implementation — The Service Client (Async Best Practices)
+
+Now we build a **Safety_Dashboard_Client** that requests the PID to turn off. **This is where the deadliest trap lives — pay close attention:**
+
+<StepByStepCode
+  title="src/safety_client.cpp"
+  description="The SafetyDashboardClient — calls /control/toggle_pid to disengage the PID. Uses ASYNC calls to avoid the deadlock trap. Built in 3 steps."
+  steps={[
+    {
+      title: "Step 1: Class & Constructor",
+      explanation: "The SafetyDashboardClient creates a Service Client for /control/toggle_pid. In the constructor, we create the client and check if the server is available before sending requests. This is important — calling a service that doesn't exist yet will hang indefinitely.",
+      cpp: `#include <chrono>
+#include <memory>
+#include "rclcpp/rclcpp.hpp"
+#include "std_srvs/srv/set_bool.hpp"
+
+using namespace std::chrono_literals;
+
+class SafetyDashboardClient : public rclcpp::Node
+{
+public:
+  SafetyDashboardClient() : Node("safety_dashboard_client")
+  {
+    // 1. Create the Service Client
+    client_ = this->create_client<std_srvs::srv::SetBool>(
+      "/control/toggle_pid");
+
+    // Wait for server to appear on the network
+    while (!client_->wait_for_service(std::chrono::seconds(1))) {
+      RCLCPP_INFO(this->get_logger(), "Waiting for PID Server...");
+    }
+
+    // Send request will go here (Step 2)
+  }
+
+private:
+  rclcpp::Client<std_srvs::srv::SetBool>::SharedPtr client_;
+};`,
+      python: `import rclpy
+from rclpy.node import Node
+from std_srvs.srv import SetBool
+
+class SafetyDashboardClient(Node):
+    def __init__(self):
+        super().__init__('safety_dashboard_client')
+
+        # 1. Create the Service Client
+        self.client_ = self.create_client(
+            SetBool, '/control/toggle_pid')
+
+        # Wait for server to appear
+        while not self.client_.wait_for_service(timeout_sec=1.0):
+            self.get_logger().info('Waiting for PID Server...')
+
+        # Send request will go here (Step 2)`,
+    },
+    {
+      title: "Step 2: Send the Request (Async!)",
+      explanation: "CRITICAL: We use async_send_request, NOT a blocking call. We fire the request and immediately provide a callback that will run when the response arrives. The request is a SetBool::Request with data=false (disengage PID). We pass a lambda (C++) or a method (Python) as the response callback.",
+      cpp: `class SafetyDashboardClient : public rclcpp::Node
+{
+public:
+  SafetyDashboardClient() : Node("safety_dashboard_client")
+  {
+    client_ = this->create_client<std_srvs::srv::SetBool>(
+      "/control/toggle_pid");
+    while (!client_->wait_for_service(std::chrono::seconds(1))) {
+      RCLCPP_INFO(this->get_logger(), "Waiting for PID Server...");
+    }
+    this->send_request();
+  }
+
+private:
+  rclcpp::Client<std_srvs::srv::SetBool>::SharedPtr client_;
+
+  void send_request()
+  {
+    auto request = std::make_shared<std_srvs::srv::SetBool::Request>();
+    request->data = false;  // Disengage PID
+
+    // 2. Send ASYNCHRONOUSLY — provide a callback for the response
+    client_->async_send_request(request,
+      [this](rclcpp::Client<std_srvs::srv::SetBool>::SharedFuture future) {
+        auto response = future.get();
+        // Response handling (Step 3)
+      });
+  }
+};`,
+      python: `class SafetyDashboardClient(Node):
+    def __init__(self):
+        super().__init__('safety_dashboard_client')
+        self.client_ = self.create_client(
+            SetBool, '/control/toggle_pid')
+        while not self.client_.wait_for_service(timeout_sec=1.0):
+            self.get_logger().info('Waiting for PID Server...')
+        self.send_request()
+
+    def send_request(self):
+        request = SetBool.Request()
+        request.data = False  # Disengage PID
+
+        # 2. Send ASYNCHRONOUSLY
+        future = self.client_.call_async(request)
+        future.add_done_callback(self.response_callback)
+
+    # Response handling (Step 3)`,
+    },
+    {
+      title: "Step 3: Response Callback + main()",
+      explanation: "The response callback fires when the server replies. We check response->success and log the message. Because we used async_send_request, the Executor was free to process the response immediately — no deadlock. The main() function follows the standard lifecycle. NEVER use client_->call() (synchronous) inside a callback — that's the deadlock trap described below.",
+      cpp: `class SafetyDashboardClient : public rclcpp::Node
+{
+public:
+  SafetyDashboardClient() : Node("safety_dashboard_client")
+  {
+    client_ = this->create_client<std_srvs::srv::SetBool>(
+      "/control/toggle_pid");
+    while (!client_->wait_for_service(std::chrono::seconds(1))) {
+      RCLCPP_INFO(this->get_logger(), "Waiting for PID Server...");
+    }
+    this->send_request();
+  }
+
+private:
+  rclcpp::Client<std_srvs::srv::SetBool>::SharedPtr client_;
+
+  void send_request()
+  {
+    auto request = std::make_shared<std_srvs::srv::SetBool::Request>();
+    request->data = false;
+    client_->async_send_request(request,
+      [this](rclcpp::Client<std_srvs::srv::SetBool>::SharedFuture future) {
+        auto response = future.get();
+        if (response->success) {
+          RCLCPP_INFO(this->get_logger(), "PID Disengaged: %s",
+            response->message.c_str());
+        } else {
+          RCLCPP_ERROR(this->get_logger(), "Failed to disengage PID!");
+        }
+      });
+  }
+};
+
+int main(int argc, char **argv)
+{
+  rclcpp::init(argc, argv);
+  rclcpp::spin(std::make_shared<SafetyDashboardClient>());
+  rclcpp::shutdown();
+  return 0;
+}`,
+      python: `class SafetyDashboardClient(Node):
+    def __init__(self):
+        super().__init__('safety_dashboard_client')
+        self.client_ = self.create_client(
+            SetBool, '/control/toggle_pid')
+        while not self.client_.wait_for_service(timeout_sec=1.0):
+            self.get_logger().info('Waiting for PID Server...')
+        self.send_request()
+
+    def send_request(self):
+        request = SetBool.Request()
+        request.data = False
+        future = self.client_.call_async(request)
+        future.add_done_callback(self.response_callback)
+
+    def response_callback(self, future):
+        response = future.result()
+        if response.success:
+            self.get_logger().info(f'PID Disengaged: {response.message}')
+        else:
+            self.get_logger().error('Failed to disengage PID!')
+
+def main(args=None):
+    rclpy.init(args=args)
+    rclpy.spin(SafetyDashboardClient())
+    rclpy.shutdown()
+
+if __name__ == '__main__':
+    main()`,
+    },
+  ]}
+/>
+
+<Callout type="pitfall" title="CRITICAL Pitfall — The Deadlock Trap">
+**NEVER use synchronous `client_->call()` (or `client.call()` in Python) inside a timer or subscription callback when using a Single-Threaded Executor.**
+
+Here's what happens if you do:
+1. Your timer callback fires and calls `client_->call()` (blocking).
+2. The Client sends the request to the Server.
+3. The Server processes it and publishes the response to the DDS queue.
+4. **The Trap:** The only thread capable of reading that response queue is currently frozen inside your timer callback, waiting for the response! The system is **permanently deadlocked**.
+
+**How Professionals Handle This:**
+- **Always use Asynchronous calls** (`async_send_request` / `call_async`): fire the request and immediately exit. Provide a callback that the Executor will run when the response arrives.
+- **Callback Groups & Multi-Threaded Executors:** If you absolutely must block and wait sequentially, place the Service Client into a separate `MutuallyExclusiveCallbackGroup` and spin using a `MultiThreadedExecutor` (covered in Phase 5).
+</Callout>
+
+---
+
+### Inspecting Services — CLI Tools
+
+**Try the service CLI commands in the simulated terminal:**
+
+<SimulatedTerminal
+  title="ROS 2 Service Inspector"
+  welcomeMessage={[
+    "ROS 2 Humble — Service Inspection Terminal",
+    "Type 'ros2 service list' to see active services, or try the hint commands.",
+  ]}
+  hintCommands={[
+    "ros2 service list",
+    "ros2 service list -t",
+    "ros2 service info /control/toggle_pid",
+    "ros2 service call /control/toggle_pid std_srvs/srv/SetBool {data: false}",
+  ]}
+  commands={[
+    {
+      command: "ros2 service list",
+      description: "List all active services on the network",
+      output: [
+        "/control/toggle_pid",
+        "/pid_manager_node/describe_parameters",
+        "/pid_manager_node/get_parameters",
+        "/pid_manager_node/set_parameters",
+      ],
+    },
+    {
+      command: "ros2 service list -t",
+      description: "List services with their interface types",
+      output: [
+        "/control/toggle_pid [std_srvs/srv/SetBool]",
+        "/pid_manager_node/describe_parameters [rcl_interfaces/srv/DescribeParameters]",
+        "/pid_manager_node/get_parameters [rcl_interfaces/srv/GetParameters]",
+      ],
+    },
+    {
+      command: "ros2 service info /control/toggle_pid",
+      description: "Inspect a specific service's clients and servers",
+      output: [
+        "Service: /control/toggle_pid",
+        "Service clients: 1",
+        "  /safety_dashboard_client",
+        "Service servers: 1",
+        "  /pid_manager_node",
+      ],
+    },
+    {
+      command: "ros2 service call /control/toggle_pid std_srvs/srv/SetBool {data: false}",
+      description: "Manually call a service from the terminal",
+      output: [
+        "requester: making request: std_srvs.srv.SetBool_Request(data=false)",
+        "",
+        "response:",
+        "std_srvs.srv.SetBool_Response(success=True, message='PID Successfully Disengaged.')",
+      ],
+    },
+  ]}
+/>
+
+---
+
+## Actions — Asynchronous, Long-Running Tasks
+
+### The "Why" & The "How" (Proactive Cancellation)
+
+Your high-level planner (the Client) is the brain. The Action Server is the muscle. If the brain's perception nodes detect a sudden obstacle at 25 meters, the brain must instantly instruct the muscle to abort the 50-meter drive command.
+
+Actions are the most sophisticated primitive. They wrap a long-running goal (e.g. "drive to coordinate X,Y") with **three channels of communication**. **Click each node in the graph below to understand the 3-way Action communication:**
+
+<InteractiveGraph
+  title="The Action Pattern — Goal, Feedback, Result. Click any node to explore."
+  height={380}
+  nodes={[
+    {
+      id: "client",
+      label: "Action Client",
+      subtitle: "The Planner (Brain)",
+      icon: "Brain",
+      accent: "violet",
+      position: { x: 50, y: 150 },
+      description: "The Action Client (e.g. SafetyPlannerClient) sends a Goal to the Action Server. It receives a Goal Handle — its direct line to the executing task. The Client uses this handle to monitor feedback, wait for the result, or send a cancel request if the situation changes (e.g. obstacle detected).",
+    },
+    {
+      id: "goal",
+      label: "Goal",
+      subtitle: "Channel 1: The Request",
+      icon: "Send",
+      accent: "cyan",
+      position: { x: 350, y: 60 },
+      description: "The Goal is the initial request — e.g. 'drive 50 meters forward'. The Client sends it asynchronously and receives a Goal Handle. The Server can ACCEPT or REJECT the goal (e.g. if the robot is in emergency stop state, it rejects).",
+    },
+    {
+      id: "feedback",
+      label: "Feedback",
+      subtitle: "Channel 2: Continuous Stream",
+      icon: "Activity",
+      accent: "amber",
+      position: { x: 350, y: 150 },
+      description: "Feedback is a continuous stream of progress updates from the Server — e.g. 'distance_traveled: 15.2 meters'. The Client monitors this to make safety decisions. If the feedback shows we've reached 25m and an obstacle appears, the Client sends a cancel request. This is the proactive cancellation mechanism.",
+    },
+    {
+      id: "result",
+      label: "Result",
+      subtitle: "Channel 3: Final Outcome",
+      icon: "CheckCircle2",
+      accent: "emerald",
+      position: { x: 350, y: 240 },
+      description: "The Result is the final outcome — e.g. 'total_time_elapsed: 5.0s'. It arrives once when the task completes, is aborted, or is canceled. The result includes a status code: SUCCEEDED, ABORTED, or CANCELED. The Client's result_callback handles this final state.",
+    },
+    {
+      id: "server",
+      label: "Action Server",
+      subtitle: "The Executor (Muscle)",
+      icon: "Cog",
+      accent: "rose",
+      position: { x: 650, y: 150 },
+      description: "The Action Server (e.g. DriveActionServer) receives the goal, executes it in a long-running loop, publishes feedback periodically, and sends the final result when done. If the Client sends a cancel request, the Server safely winds down its hardware loop and returns a CANCELED result.",
+    },
+  ]}
+  edges={[
+    {
+      id: "e-goal",
+      source: "client",
+      target: "goal",
+      label: "send_goal",
+      animated: true,
+    },
+    {
+      id: "e-goal-server",
+      source: "goal",
+      target: "server",
+      label: "accept/reject",
+      animated: true,
+    },
+    {
+      id: "e-feedback",
+      source: "server",
+      target: "feedback",
+      label: "feedback",
+      animated: true,
+    },
+    {
+      id: "e-feedback-client",
+      source: "feedback",
+      target: "client",
+      label: "progress",
+      animated: true,
+    },
+    {
+      id: "e-result",
+      source: "server",
+      target: "result",
+      label: "result",
+      animated: false,
+    },
+    {
+      id: "e-result-client",
+      source: "result",
+      target: "client",
+      label: "final",
+      animated: false,
+    },
+  ]}
+/>
+
+When an Action Client sends a goal, it receives a **Goal Handle**. This handle is your direct line of communication to that specific executing task. To cancel, the Client takes that Goal Handle and sends an asynchronous request to the Server's hidden Cancel Service. The Server processes it, safely winds down its hardware loop, and returns a CANCELED result to the Client.
+
+### Real-world Use Cases
+
+- **Dynamic Obstacle Avoidance:** Aborting a path-following action because a pedestrian swerved into the robot's lane.
+- **Emergency Return:** Canceling an active navigation action to immediately route the robot back to base due to low battery voltage.
+
+---
+
+### Implementation — The Action Client (With Safety Preemption)
+
+We will build the **SafetyPlannerClient**. It requests a 50-meter drive. When the feedback indicates we have reached 25 meters, it simulates detecting an obstacle and triggers the cancellation.
+
+**Build the Action Client step by step:**
+
+<StepByStepCode
+  title="src/safety_planner_client.cpp"
+  description="The SafetyPlannerClient — sends a 50m drive goal, monitors feedback, and cancels at 25m (obstacle simulation). Built in 4 steps."
+  steps={[
+    {
+      title: "Step 1: Class & Action Client Creation",
+      explanation: "The SafetyPlannerClient creates an Action Client for /control/drive_distance using the DriveDistance action interface. In the constructor, we wait for the server to appear on the network before sending any goals. We also declare a cancel_triggered_ guard flag to ensure we only send the cancel request once.",
+      cpp: `#include <memory>
+#include "rclcpp/rclcpp.hpp"
+#include "rclcpp_action/rclcpp_action.hpp"
+#include "robot_interfaces/action/drive_distance.hpp"
+
+using namespace std::placeholders;
+
+class SafetyPlannerClient : public rclcpp::Node
+{
+public:
+  using DriveDistance = robot_interfaces::action::DriveDistance;
+  using GoalHandleDrive = rclcpp_action::ClientGoalHandle<DriveDistance>;
+
+  SafetyPlannerClient() : Node("safety_planner_client")
+  {
+    // 1. Create the Action Client
+    client_ptr_ = rclcpp_action::create_client<DriveDistance>(
+      this, "/control/drive_distance");
+
+    // Wait for server to appear
+    while (!client_ptr_->wait_for_action_server(std::chrono::seconds(1))) {
+      RCLCPP_INFO(this->get_logger(), "Waiting for Drive Action Server...");
+    }
+    this->send_goal();
+  }
+
+private:
+  rclcpp_action::Client<DriveDistance>::SharedPtr client_ptr_;
+  bool cancel_triggered_ = false;
+
+  void send_goal() { /* Step 2 */ }
+  // 3 callbacks (Step 3 & 4)
+};`,
+      python: `import rclpy
+from rclpy.node import Node
+from rclpy.action import ActionClient
+from robot_interfaces.action import DriveDistance
+
+class SafetyPlannerClient(Node):
+    def __init__(self):
+        super().__init__('safety_planner_client')
+
+        # 1. Create the Action Client
+        self._action_client = ActionClient(
+            self, DriveDistance, '/control/drive_distance')
+
+        # Wait for server
+        while not self._action_client.wait_for_server(timeout_sec=1.0):
+            self.get_logger().info('Waiting for Drive Action Server...')
+
+        self.cancel_triggered_ = False
+        self.send_goal()
+
+    def send_goal(self):
+        """Step 2"""
+        pass
+
+    # 3 callbacks (Step 3 & 4)`,
+    },
+    {
+      title: "Step 2: Send the Goal Asynchronously",
+      explanation: "We create a Goal message with target_distance = 50.0. Then we set up SendGoalOptions with THREE crucial async callbacks: goal_response_callback (was the goal accepted?), feedback_callback (continuous progress), and result_callback (final outcome). Finally, we call async_send_goal — this fires and returns immediately, never blocking.",
+      cpp: `class SafetyPlannerClient : public rclcpp::Node
+{
+  // ... Step 1 code ...
+
+  void send_goal()
+  {
+    RCLCPP_INFO(this->get_logger(), "Planner requesting 50-meter drive.");
+
+    auto goal_msg = DriveDistance::Goal();
+    goal_msg.target_distance = 50.0;
+
+    auto send_goal_options = rclcpp_action::Client<DriveDistance>::SendGoalOptions();
+
+    // Bind our 3 crucial async callbacks
+    send_goal_options.goal_response_callback =
+      std::bind(&SafetyPlannerClient::goal_response_callback, this, _1);
+    send_goal_options.feedback_callback =
+      std::bind(&SafetyPlannerClient::feedback_callback, this, _1, _2);
+    send_goal_options.result_callback =
+      std::bind(&SafetyPlannerClient::result_callback, this, _1);
+
+    // 2. Send the Goal Asynchronously
+    client_ptr_->async_send_goal(goal_msg, send_goal_options);
+  }
+
+  // Callbacks (Step 3 & 4)
+};`,
+      python: `class SafetyPlannerClient(Node):
+    # ... Step 1 code ...
+
+    def send_goal(self):
+        self.get_logger().info('Planner requesting 50-meter drive.')
+
+        goal_msg = DriveDistance.Goal()
+        goal_msg.target_distance = 50.0
+
+        # 2. Send the Goal Asynchronously with 3 callbacks
+        self._send_goal_future = self._action_client.send_goal_async(
+            goal_msg,
+            feedback_callback=self.feedback_callback)
+
+        # goal_response_callback (Step 3)
+        self._send_goal_future.add_done_callback(
+            self.goal_response_callback)
+
+    # result_callback (Step 4)`,
+    },
+    {
+      title: "Step 3: Goal Response + Feedback (Safety Trigger)",
+      explanation: "Callback 1 (goal_response): checks if the server accepted the goal. Callback 2 (feedback): logs the distance traveled and contains THE PREEMPTION TRIGGER — if distance >= 25m and we haven't already canceled, we call async_cancel_goal with the goal handle. This is the proactive cancellation that makes Actions safe. The cancel_triggered_ guard prevents spamming cancel requests.",
+      cpp: `  // Callback 1: Did the server accept our request?
+  void goal_response_callback(const GoalHandleDrive::SharedPtr & goal_handle)
+  {
+    if (!goal_handle) {
+      RCLCPP_ERROR(this->get_logger(), "Goal was rejected by server");
+    } else {
+      RCLCPP_INFO(this->get_logger(), "Goal accepted, waiting for result");
+    }
+  }
+
+  // Callback 2: Continuous Feedback & The Safety Trigger
+  void feedback_callback(
+    GoalHandleDrive::SharedPtr goal_handle,
+    const std::shared_ptr<const DriveDistance::Feedback> feedback)
+  {
+    RCLCPP_INFO(this->get_logger(), "Feedback: Driven %.2f meters",
+      feedback->distance_traveled);
+
+    // --- THE PREEMPTION TRIGGER ---
+    if (feedback->distance_traveled >= 25.0 && !cancel_triggered_) {
+      RCLCPP_WARN(this->get_logger(),
+        "OBSTACLE DETECTED! Sending Cancel Request...");
+
+      // Asynchronously send the cancel request
+      client_ptr_->async_cancel_goal(goal_handle);
+      cancel_triggered_ = true;  // Prevent spamming cancel
+    }
+  }`,
+      python: `    # Callback 1: Did the server accept our request?
+    def goal_response_callback(self, future):
+        goal_handle = future.result()
+        if not goal_handle.accepted:
+            self.get_logger().error('Goal was rejected by server')
+            return
+        self.get_logger().info('Goal accepted, waiting for result')
+        self._goal_handle = goal_handle
+
+        # Request result (Step 4)
+        self._get_result_future = goal_handle.get_result_async()
+        self._get_result_future.add_done_callback(self.result_callback)
+
+    # Callback 2: Continuous Feedback & The Safety Trigger
+    def feedback_callback(self, feedback_msg):
+        feedback = feedback_msg.feedback
+        self.get_logger().info(
+            f'Feedback: Driven {feedback.distance_traveled:.2f} meters')
+
+        # --- THE PREEMPTION TRIGGER ---
+        if (feedback.distance_traveled >= 25.0
+            and not self.cancel_triggered_):
+            self.get_logger().warn(
+                'OBSTACLE DETECTED! Sending Cancel Request...')
+
+            # Asynchronously send the cancel request
+            self._goal_handle.cancel_goal_async()
+            self.cancel_triggered_ = True`,
+    },
+    {
+      title: "Step 4: Result Callback + main()",
+      explanation: "Callback 3 (result): handles the final outcome. We expect CANCELED due to our preemption trigger. The switch statement handles all possible result codes: SUCCEEDED (goal completed normally), ABORTED (server encountered an error), or CANCELED (client cancelled). The main() function follows the standard lifecycle.",
+      cpp: `  // Callback 3: The Final Outcome
+  void result_callback(const DriveDistance::WrappedResult & result)
+  {
+    switch (result.code) {
+      case rclcpp_action::ResultCode::SUCCEEDED:
+        RCLCPP_INFO(this->get_logger(), "Goal succeeded! Time: %.2f",
+          result.result->total_time_elapsed);
+        break;
+      case rclcpp_action::ResultCode::ABORTED:
+        RCLCPP_ERROR(this->get_logger(), "Goal was aborted by server.");
+        break;
+      case rclcpp_action::ResultCode::CANCELED:
+        // We expect this branch due to our preemption!
+        RCLCPP_WARN(this->get_logger(),
+          "Goal successfully canceled by planner intervention!");
+        break;
+      default:
+        RCLCPP_ERROR(this->get_logger(), "Unknown result code");
+        break;
+    }
+    rclcpp::shutdown();
+  }
+};
+
+int main(int argc, char **argv)
+{
+  rclcpp::init(argc, argv);
+  rclcpp::spin(std::make_shared<SafetyPlannerClient>());
+  rclcpp::shutdown();
+  return 0;
+}`,
+      python: `    # Callback 3: The Final Outcome
+    def result_callback(self, future):
+        result = future.result().result
+        status = future.result().status
+
+        if status == GoalStatus.STATUS_SUCCEEDED:
+            self.get_logger().info(
+                f'Goal succeeded! Time: {result.total_time_elapsed:.2f}')
+        elif status == GoalStatus.STATUS_ABORTED:
+            self.get_logger().error('Goal was aborted by server.')
+        elif status == GoalStatus.STATUS_CANCELED:
+            # We expect this due to our preemption!
+            self.get_logger().warn(
+                'Goal successfully canceled by planner intervention!')
+        else:
+            self.get_logger().error(f'Unknown result code: {status}')
+
+        rclpy.shutdown()
+
+def main(args=None):
+    rclpy.init(args=args)
+    rclpy.spin(SafetyPlannerClient())
+
+if __name__ == '__main__':
+    main()`,
+    },
+  ]}
+/>
+
+<Callout type="best-practice" title="Best Practice — Proactive Cancellation Safety">
+If a new higher-priority goal arrives (e.g. an obstacle appears mid-navigation), you must **cancel the running goal** before accepting the new one. ROS 2 Actions support proactive cancellation — always implement the cancel callback to safely halt actuators before the new goal takes control. The `cancel_triggered_` guard flag ensures you only send one cancel request, preventing middleware flooding.
+</Callout>
+
+<Callout type="pitfall" title="CRITICAL Pitfall — Spamming Cancel Requests">
+Without a guard flag (`cancel_triggered_`), the feedback callback fires 10 times per second. Each invocation would send a new `async_cancel_goal` request. This can completely choke the middleware with hundreds of cancel requests. **Always use a state flag** to ensure you only send the cancel request once.
+</Callout>
+
+<Callout type="pitfall" title="Pitfall — Losing the Goal Handle (Python)">
+In C++, the `feedback_callback` conveniently provides the `goal_handle` as an argument. In Python, the `feedback_callback` only receives the feedback message. You **must store `self._goal_handle`** during the `goal_response_callback` so you have a reference to it when you need to cancel later. Forgetting this is a common cause of "I can't cancel my action!" bugs.
+</Callout>
+
+<Callout type="pitfall" title="Pitfall — Handling Server Rejection">
+Never assume the server will accept your goal. If the robot is currently in an "Emergency Stop" state, the Server might reply with REJECT to your drive command. If your Client code immediately tries to ask for a result on a rejected goal, it will throw a fatal null pointer exception. **Always check if the goal was accepted before proceeding.**
+</Callout>
+
+---
+
+### Inspecting the Action Graph — CLI Tools
+
+When your robot refuses to move, or it starts moving and won't stop, you need to know immediately: Is the Server dead? Is the Client sending garbage data? Did the Server reject the goal?
+
+Because an Action is secretly composed of **five different Topics and Services**, looking at raw `ros2 topic list` output when an Action is running is a nightmare. The Action CLI tools wrap these into clean, human-readable output.
+
+**Try the action CLI commands in the simulated terminal:**
+
+<SimulatedTerminal
+  title="ROS 2 Action Inspector"
+  welcomeMessage={[
+    "ROS 2 Humble — Action Inspection Terminal",
+    "Type 'ros2 action list -t' to see active actions, or try the hint commands.",
+  ]}
+  hintCommands={[
+    "ros2 action list -t",
+    "ros2 action info /control/drive_distance",
+    "ros2 action send_goal /control/drive_distance robot_interfaces/action/DriveDistance {target_distance: 5.0} -f",
+  ]}
+  commands={[
+    {
+      command: "ros2 action list -t",
+      description: "List all active actions with their interface types",
+      output: [
+        "/control/drive_distance [robot_interfaces/action/DriveDistance]",
+        "/navigate_to_pose [nav2_msgs/action/NavigateToPose]",
+      ],
+    },
+    {
+      command: "ros2 action info /control/drive_distance",
+      description: "Inspect action clients and servers",
+      output: [
+        "Action: /control/drive_distance",
+        "Action clients: 1",
+        "  /safety_planner_client",
+        "Action servers: 1",
+        "  /drive_action_server",
+      ],
+    },
+    {
+      command: "ros2 action send_goal /control/drive_distance robot_interfaces/action/DriveDistance {target_distance: 5.0} -f",
+      description: "Manually send a goal with feedback streaming (-f flag)",
+      output: [
+        "Waiting for an action server to become available...",
+        "Sending goal:",
+        "     target_distance: 5.0",
+        "",
+        "Goal accepted with ID: 1e4b3c...",
+        "",
+        "Feedback:",
+        "     distance_traveled: 1.0",
+        "Feedback:",
+        "     distance_traveled: 2.0",
+        "Feedback:",
+        "     distance_traveled: 3.0",
+        "Feedback:",
+        "     distance_traveled: 4.0",
+        "",
+        "Result:",
+        "     total_time_elapsed: 5.0",
+        "",
+        "Goal finished with status: SUCCEEDED",
+      ],
+    },
+  ]}
+/>
+
+<Callout type="best-practice" title="Tech Lead Note — Always Use -f">
+If you don't use the `-f` flag with `ros2 action send_goal`, the terminal will just sit completely blank after "Goal accepted" until the final Result arrives. **Always use `-f` during testing** so you know the system hasn't frozen — you can see the feedback stream in real-time.
+</Callout>
+
+---
+
+## Choosing the Right Primitive
+
+<Callout type="best-practice" title="Best Practice — Choosing the Right Primitive">
 - **Is the data a continuous stream?** → Topic
 - **Is it a quick question with one answer?** → Service
 - **Does it take a long time and need progress updates?** → Action
 - **Do you need to cancel it mid-flight?** → Action (services cannot be cancelled)
 </Callout>
 
-> **Coming next:** Full implementation walkthroughs — the Publisher, Subscriber, Service Server/Client, and Action Client with safety preemption. Each with dual C++/Python code and CLI inspection labs.
+> **Coming next in Phase 3:** Parameters (Dynamic Configuration), the Launch System, and Debugging & Data Logging with Rosbag2.
