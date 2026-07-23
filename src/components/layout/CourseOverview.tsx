@@ -26,6 +26,7 @@ import { BookmarksButton } from "@/components/layout/BookmarksButton";
 import { AchievementsButton } from "@/components/layout/AchievementsButton";
 import { CompletedButton } from "@/components/layout/CompletedButton";
 import { AchievementWatcher } from "@/components/layout/AchievementWatcher";
+import { AnimatedRobotSchematic } from "@/components/layout/AnimatedRobotSchematic";
 
 interface CourseOverviewProps {
   onNavigate: (moduleId: string) => void;
@@ -110,106 +111,91 @@ export function CourseOverview({ onNavigate, onDismiss, onBookmarks, onAchieveme
 
       {/* ── Hero Section ─────────────────────────────────────────────── */}
       <section className="relative flex min-h-[90vh] items-center overflow-hidden">
-        {/* Animated background: gradient mesh + floating node dots */}
+        {/* Subtle gradient background */}
         <div className="absolute inset-0" aria-hidden>
-          {/* Grid background */}
-          <div className="grid-bg absolute inset-0 opacity-30" />
-          {/* Large cyan glow */}
-          <div className="absolute left-1/4 top-1/4 h-[500px] w-[500px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-cyan-500/8 blur-[120px]" />
-          {/* Teal glow bottom-right */}
-          <div className="absolute bottom-0 right-1/4 h-[400px] w-[400px] rounded-full bg-teal-500/6 blur-[100px]" />
-          {/* Violet accent top-right */}
-          <div className="absolute right-0 top-0 h-[300px] w-[300px] rounded-full bg-violet-500/5 blur-[80px]" />
-
-          {/* Floating animated nodes — subtle "network" feel */}
-          <div className="absolute left-[15%] top-[30%] h-2 w-2 animate-pulse rounded-full bg-cyan-400/40" style={{ animationDelay: "0s" }} />
-          <div className="absolute left-[80%] top-[25%] h-1.5 w-1.5 animate-pulse rounded-full bg-teal-400/30" style={{ animationDelay: "0.5s" }} />
-          <div className="absolute left-[60%] top-[60%] h-2 w-2 animate-pulse rounded-full bg-cyan-400/30" style={{ animationDelay: "1s" }} />
-          <div className="absolute left-[25%] top-[70%] h-1.5 w-1.5 animate-pulse rounded-full bg-violet-400/25" style={{ animationDelay: "1.5s" }} />
-          <div className="absolute left-[85%] top-[65%] h-1 w-1 animate-pulse rounded-full bg-cyan-400/50" style={{ animationDelay: "2s" }} />
-
-          {/* Connecting lines (SVG) — very subtle */}
-          <svg className="absolute inset-0 h-full w-full opacity-[0.04]" aria-hidden>
-            <line x1="15%" y1="30%" x2="60%" y2="60%" stroke="currentColor" strokeWidth="1" />
-            <line x1="60%" y1="60%" x2="80%" y2="25%" stroke="currentColor" strokeWidth="1" />
-            <line x1="25%" y1="70%" x2="60%" y2="60%" stroke="currentColor" strokeWidth="1" />
-            <line x1="80%" y1="25%" x2="85%" y2="65%" stroke="currentColor" strokeWidth="1" />
-          </svg>
+          <div className="grid-bg absolute inset-0 opacity-20" />
+          <div className="absolute left-0 top-0 h-[400px] w-[400px] rounded-full bg-cyan-500/6 blur-[100px]" />
+          <div className="absolute bottom-0 right-0 h-[300px] w-[300px] rounded-full bg-teal-500/5 blur-[80px]" />
         </div>
 
-        {/* Hero content */}
-        <div className="relative mx-auto w-full max-w-5xl px-5 py-20 lg:px-10">
-          {/* Badge */}
-          <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-cyan-500/30 bg-cyan-500/10 px-3 py-1 text-xs font-medium text-cyan-300 backdrop-blur-sm">
-            <Sparkles className="h-3 w-3" />
-            ROS2 Humble · Interactive Learning Platform
-          </div>
-
-          {/* Headline — bold and inspiring */}
-          <h1 className="mb-4 text-balance text-4xl font-bold leading-tight tracking-tight text-foreground sm:text-5xl lg:text-6xl">
-            Ready to master the{" "}
-            <span className="bg-gradient-to-r from-cyan-400 via-teal-400 to-emerald-400 bg-clip-text text-transparent">
-              autonomous stack?
-            </span>
-          </h1>
-
-          {/* Subheadline */}
-          <p className="mb-8 max-w-2xl text-balance text-lg text-muted-foreground/80 sm:text-xl">
-            Build the nervous system of autonomous robots — from Nodes and Topics
-            to SLAM and Nav2. Seven phases. Twenty-one interactive lessons.
-            Zero boring documentation.
-          </p>
-
-          {/* CTA buttons — distinct routing */}
-          <div className="flex flex-wrap items-center gap-4">
-            <Button
-              size="lg"
-              onClick={() => onNavigate(continueTarget?.module.id ?? "phase-1/middleware")}
-              className="gap-2 bg-gradient-to-r from-cyan-500 to-teal-500 text-white shadow-lg shadow-cyan-500/25 transition-all hover:from-cyan-400 hover:to-teal-400 hover:shadow-xl hover:shadow-cyan-500/40 hover:-translate-y-0.5"
-            >
-              <Play className="h-4 w-4 fill-current" />
-              {hydrated && totalCompleted > 0 ? "Continue Learning" : "Start Phase 1"}
-              <ArrowRight className="h-4 w-4" />
-            </Button>
-            <Button
-              size="lg"
-              variant="outline"
-              onClick={scrollToCurriculum}
-              className="gap-2 border-border/70 backdrop-blur-sm hover:border-cyan-500/40 hover:bg-cyan-500/5 hover:text-cyan-400"
-            >
-              <BookOpen className="h-4 w-4" />
-              Browse Curriculum
-            </Button>
-          </div>
-
-          {/* Quick stats — minimal, welcoming */}
-          <div className="mt-12 flex flex-wrap items-center gap-8 text-sm">
-            <div className="flex items-center gap-2 text-muted-foreground">
-              <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-cyan-500/30 bg-cyan-500/5">
-                <Icons.Network className="h-4 w-4 text-cyan-400" />
-              </div>
-              <span><span className="font-bold text-foreground">7</span> Phases</span>
+        {/* Split layout: text on left, robot schematic on right */}
+        <div className="relative mx-auto grid w-full max-w-6xl grid-cols-1 items-center gap-8 px-5 py-20 lg:grid-cols-2 lg:gap-4 lg:px-10">
+          {/* Left: text content */}
+          <div className="flex flex-col items-start">
+            {/* Badge */}
+            <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-cyan-500/30 bg-cyan-500/10 px-3 py-1 text-xs font-medium text-cyan-300 backdrop-blur-sm">
+              <Sparkles className="h-3 w-3" />
+              ROS2 Humble · Interactive Learning Platform
             </div>
-            <div className="flex items-center gap-2 text-muted-foreground">
-              <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-emerald-500/30 bg-emerald-500/5">
-                <Icons.BookOpen className="h-4 w-4 text-emerald-400" />
-              </div>
-              <span><span className="font-bold text-foreground">{totalModules}</span> Lessons</span>
+
+            {/* Headline */}
+            <h1 className="mb-4 text-balance text-4xl font-bold leading-tight tracking-tight text-foreground sm:text-5xl lg:text-6xl">
+              Ready to master the{" "}
+              <span className="bg-gradient-to-r from-cyan-400 via-teal-400 to-emerald-400 bg-clip-text text-transparent">
+                autonomous stack?
+              </span>
+            </h1>
+
+            {/* Subheadline */}
+            <p className="mb-8 max-w-xl text-balance text-lg text-muted-foreground/80 sm:text-xl">
+              Build the nervous system of autonomous robots — from Nodes and Topics
+              to SLAM and Nav2. Seven phases. Twenty-one interactive lessons.
+              Zero boring documentation.
+            </p>
+
+            {/* CTA buttons */}
+            <div className="flex flex-wrap items-center gap-4">
+              <Button
+                size="lg"
+                onClick={() => onNavigate(continueTarget?.module.id ?? "phase-1/middleware")}
+                className="gap-2 bg-gradient-to-r from-cyan-500 to-teal-500 text-white shadow-lg shadow-cyan-500/25 transition-all hover:from-cyan-400 hover:to-teal-400 hover:shadow-xl hover:shadow-cyan-500/40 hover:-translate-y-0.5"
+              >
+                <Play className="h-4 w-4 fill-current" />
+                {hydrated && totalCompleted > 0 ? "Continue Learning" : "Start Phase 1"}
+                <ArrowRight className="h-4 w-4" />
+              </Button>
+              <Button
+                size="lg"
+                variant="outline"
+                onClick={scrollToCurriculum}
+                className="gap-2 border-border/70 backdrop-blur-sm hover:border-cyan-500/40 hover:bg-cyan-500/5 hover:text-cyan-400"
+              >
+                <BookOpen className="h-4 w-4" />
+                Browse Curriculum
+              </Button>
             </div>
-            <div className="flex items-center gap-2 text-muted-foreground">
-              <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-violet-500/30 bg-violet-500/5">
-                <Clock className="h-4 w-4 text-violet-400" />
-              </div>
-              <span><span className="font-bold text-foreground">{Math.floor(totalMinutes / 60)}h {totalMinutes % 60}m</span> of content</span>
-            </div>
-            {hydrated && totalCompleted > 0 && (
+
+            {/* Quick stats */}
+            <div className="mt-10 flex flex-wrap items-center gap-6 text-sm">
               <div className="flex items-center gap-2 text-muted-foreground">
-                <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-amber-500/30 bg-amber-500/5">
-                  <Icons.TrendingUp className="h-4 w-4 text-amber-400" />
+                <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-cyan-500/30 bg-cyan-500/5">
+                  <Icons.Network className="h-4 w-4 text-cyan-400" />
                 </div>
-                <span><span className="font-bold text-foreground">{totalCompleted}/{totalModules}</span> completed</span>
+                <span><span className="font-bold text-foreground">7</span> Phases</span>
               </div>
-            )}
+              <div className="flex items-center gap-2 text-muted-foreground">
+                <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-emerald-500/30 bg-emerald-500/5">
+                  <Icons.BookOpen className="h-4 w-4 text-emerald-400" />
+                </div>
+                <span><span className="font-bold text-foreground">{totalModules}</span> Lessons</span>
+              </div>
+              <div className="flex items-center gap-2 text-muted-foreground">
+                <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-violet-500/30 bg-violet-500/5">
+                  <Clock className="h-4 w-4 text-violet-400" />
+                </div>
+                <span><span className="font-bold text-foreground">{Math.floor(totalMinutes / 60)}h {totalMinutes % 60}m</span></span>
+              </div>
+            </div>
+          </div>
+
+          {/* Right: Animated Robot Schematic */}
+          <div className="relative hidden h-[500px] items-center justify-center lg:flex">
+            <AnimatedRobotSchematic className="max-h-full max-w-full" />
+          </div>
+
+          {/* Mobile: schematic below text (smaller) */}
+          <div className="relative flex h-[280px] items-center justify-center lg:hidden">
+            <AnimatedRobotSchematic className="h-full w-full max-w-sm opacity-80" />
           </div>
         </div>
       </section>
