@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
+import Fuse from "fuse.js";
 import { Search, Command, Github, BookOpen, Menu, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ProgressIndicator } from "@/components/ProgressIndicator";
@@ -23,6 +24,7 @@ import { AchievementsButton } from "@/components/layout/AchievementsButton";
 import { CompletedButton } from "@/components/layout/CompletedButton";
 import { RemainingTime } from "@/components/layout/RemainingTime";
 import { StreakBadge } from "@/components/layout/StreakBadge";
+import { SEARCH_INDEX, type SearchEntry } from "@/lib/search-index";
 
 interface NavbarProps {
   onToggleSidebar: () => void;
@@ -34,6 +36,46 @@ export function Navbar({ onToggleSidebar, onNavigate, activeModuleId }: NavbarPr
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+
+  // Fuse.js instance for full-text fuzzy search across all content
+  const fuse = useMemo(() => {
+    return new Fuse(SEARCH_INDEX, {
+      keys: [
+        { name: "moduleTitle", weight: 0.4 },
+        { name: "phaseTitle", weight: 0.2 },
+        { name: "keywords", weight: 0.3 },
+        { name: "headings", weight: 0.1 },
+      ],
+      threshold: 0.35,
+      ignoreLocation: true,
+      minMatchCharLength: 2,
+      includeScore: true,
+    });
+  }, []);
+
+  // Search results — either Fuse.js matches or all modules when query is empty
+  const searchResults = useMemo(() => {
+    if (!searchQuery.trim()) {
+      // Return all modules grouped by phase (default view)
+      return SEARCH_INDEX;
+    }
+    return fuse.search(searchQuery).map((r) => r.item);
+  }, [searchQuery, fuse]);
+
+  // Group results by phase for display
+  const groupedResults = useMemo(() => {
+    const groups: Record<number, SearchEntry[]> = {};
+    for (const entry of searchResults) {
+      if (!groups[entry.phaseNumber]) groups[entry.phaseNumber] = [];
+      groups[entry.phaseNumber].push(entry);
+    }
+    return groups;
+  }, [searchResults]);
+
+  const handleSearchChange = useCallback((value: string) => {
+    setSearchQuery(value);
+  }, []);
 
   useEffect(() => {
     const handler = () => setScrolled(window.scrollY > 8);
@@ -156,36 +198,54 @@ export function Navbar({ onToggleSidebar, onNavigate, activeModuleId }: NavbarPr
         </nav>
       </div>
 
-      {/* Command palette */}
-      <CommandDialog open={open} onOpenChange={setOpen}>
-        <CommandInput placeholder="Search lessons, phases, and concepts..." />
+      {/* Command palette — powered by Fuse.js full-text search */}
+      <CommandDialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) setSearchQuery(""); }}>
+        <CommandInput
+          placeholder="Search lessons, concepts, commands... (e.g. 'tf2_echo', 'EKF', 'ros2 launch')"
+          onValueChange={handleSearchChange}
+        />
         <CommandList>
-          <CommandEmpty>No results found.</CommandEmpty>
-          {COURSE_PHASES.map((phase) => (
-            <CommandGroup
-              key={phase.id}
-              heading={`Phase ${phase.number} — ${phase.title}`}
-            >
-              {phase.modules.map((module, idx) => (
-                <CommandItem
-                  key={module.id}
-                  value={`${module.title} ${phase.title} phase ${phase.number}`}
-                  onSelect={() => {
-                    onNavigate(module.id);
-                    setOpen(false);
-                  }}
-                  className={cn(
-                    activeModuleId === module.id && "bg-accent/50"
-                  )}
-                >
-                  <span className="mr-2 text-xs font-mono text-muted-foreground">
-                    {phase.number}.{idx + 1}
-                  </span>
-                  <span>{module.title}</span>
-                </CommandItem>
-              ))}
-            </CommandGroup>
-          ))}
+          {searchResults.length === 0 && searchQuery.trim() ? (
+            <CommandEmpty>No results found for "{searchQuery}". Try a different term.</CommandEmpty>
+          ) : (
+            Object.entries(groupedResults)
+              .sort(([a], [b]) => Number(a) - Number(b))
+              .map(([phaseNum, entries]) => {
+                const phase = COURSE_PHASES.find((p) => p.number === Number(phaseNum));
+                if (!phase) return null;
+                return (
+                  <CommandGroup
+                    key={phaseNum}
+                    heading={`Phase ${phaseNum} — ${phase.title}`}
+                  >
+                    {entries.map((entry) => (
+                      <CommandItem
+                        key={entry.moduleId}
+                        value={`${entry.moduleTitle} ${entry.phaseTitle} ${entry.keywords}`}
+                        onSelect={() => {
+                          onNavigate(entry.moduleId);
+                          setOpen(false);
+                          setSearchQuery("");
+                        }}
+                        className={cn(
+                          activeModuleId === entry.moduleId && "bg-accent/50"
+                        )}
+                      >
+                        <span className="mr-2 text-xs font-mono text-muted-foreground">
+                          {entry.phaseNumber}.{phase.modules.findIndex((m) => m.id === entry.moduleId) + 1}
+                        </span>
+                        <span>{entry.moduleTitle}</span>
+                        {searchQuery.trim() && (
+                          <span className="ml-auto text-[10px] text-muted-foreground/50">
+                            {entry.headings[0]?.slice(0, 30)}
+                          </span>
+                        )}
+                      </CommandItem>
+                    ))}
+                  </CommandGroup>
+                );
+              })
+          )}
         </CommandList>
       </CommandDialog>
     </header>
