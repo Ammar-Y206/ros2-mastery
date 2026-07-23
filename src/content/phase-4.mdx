@@ -1,143 +1,568 @@
 # Phase 4: Spatial Awareness & Kinematics
 
-> Give the robot a sense of space. Build the **'Digital Geometry'** of the robot, ensuring that every sensor knows exactly where it is relative to the world and the chassis, down to the last millimeter.
+> Give the robot a sense of space. Build the **'Digital Geometry'** of the robot — ensuring every sensor knows exactly where it is relative to the world and the chassis, down to the last millimeter.
 
 **What you will master:**
 
 - Managing complex **Coordinate Frames** (`map`, `odom`, `base_link`) to prevent localization errors.
-- Solving real-world problems like sensor displacement and wheel-to-lidar calibration.
-- Mastering TF2 Listeners and Broadcasters to maintain a perfect 3D transform tree.
+- Solving real-world problems like sensor displacement and wheel-to-LiDAR calibration.
+- Mastering **TF2 Listeners and Broadcasters** to maintain a perfect 3D transform tree.
 
 ---
 
 ## TF2 — The Transform Framework
+
 ### The "Why" & The "How" (Coordinate Frames & The TF Tree)
 
-A robot is a collection of rigid bodies: the chassis, a tilted LiDAR, a camera on a gimbal, a manipulator arm. Every sensor reports data in **its own local frame**. The LiDAR reports a point at `(2.0, 0, 0)` — but *2.0 meters from where?* From the LiDAR's origin, not the robot's center.
+Sensors are selfish. A LiDAR node only knows the distance of a laser return relative to its own physical glass lens. It knows nothing about the robot. If the LiDAR says *"obstacle at (X: 5.0, Y: 0.0)"*, but the LiDAR is mounted at the very front bumper (2 meters ahead of the rear axle), the obstacle is actually **7 meters** away from the vehicle's pivot point. If we don't translate these coordinates accurately, the robot will steer too early or too late and crash.
 
-**TF2** solves this by maintaining a live **tree of coordinate transforms**. Any node can ask: *"Where is this LiDAR point in the `map` frame?"* — and TF2 chains the transforms (`lidar_link` → `base_link` → `odom` → `map`) to compute the answer, with correct time interpolation.
+**TF2** is a distributed, time-stamped coordinate tracking system. It maintains a **Tree** of coordinate frames. Instead of doing complex 3D matrix multiplication in your head, TF2 handles the heavy lifting. You simply ask: *"What was the transform from `base_link` to `lidar_link` at exactly 0.5 seconds ago?"* and it returns the precise X, Y, Z translation and Quaternion rotation.
 
-### The Standard Frame Hierarchy
+**Click each node in the TF Tree below to understand the spatial hierarchy. This is the most important graph in the entire course — study it carefully:**
 
-Every ROS 2 mobile robot uses this canonical frame tree:
+<InteractiveGraph
+  title="The TF Tree — The Robot's Spatial Hierarchy. Click any frame to explore."
+  height={420}
+  nodes={[
+    {
+      id: "map",
+      label: "map",
+      subtitle: "Global Fixed Frame",
+      icon: "Map",
+      accent: "violet",
+      position: { x: 50, y: 180 },
+      description: "The earth-fixed, absolute coordinate system. It never moves. This is the frame where the robot's global position is tracked. SLAM and global localization algorithms (like AMCL) publish the transform from map to odom. The map frame is drift-free but can jump discontinuously when a loop closure is detected.",
+    },
+    {
+      id: "odom",
+      label: "odom",
+      subtitle: "Continuous Smooth Frame",
+      icon: "Navigation",
+      accent: "cyan",
+      position: { x: 350, y: 180 },
+      description: "The continuous, smooth starting point of the robot. It drifts over time due to wheel slip, but it NEVER jumps. This is crucial for local planning — the planner needs a smooth frame to project trajectories into. Odometry (wheel encoders, visual odometry, IMU integration) publishes the transform from odom to base_link at 50Hz+.",
+    },
+    {
+      id: "base_link",
+      label: "base_link",
+      subtitle: "Robot Body Center",
+      icon: "Bot",
+      accent: "emerald",
+      position: { x: 650, y: 180 },
+      description: "The physical center of the robot (usually the center of the rear axle for differential drive, or the base of a manipulator arm). Every sensor frame is a child of base_link. The transform from odom to base_link changes continuously as the robot moves. This is the frame the robot's motion is relative to.",
+    },
+    {
+      id: "lidar",
+      label: "lidar_link",
+      subtitle: "LiDAR Mount Point",
+      icon: "Radar",
+      accent: "amber",
+      position: { x: 950, y: 60 },
+      description: "The physical mounting point of the LiDAR sensor. It is a child of base_link. The transform from base_link to lidar_link is STATIC — it's defined by a metal bracket and never changes. For example: the LiDAR might be 1.5m forward, 0m left, 1.0m high. We use a StaticTransformPublisher for this. TF2 broadcasts it once and caches it forever.",
+    },
+    {
+      id: "camera",
+      label: "camera_link",
+      subtitle: "Camera Mount Point",
+      icon: "Camera",
+      accent: "sky",
+      position: { x: 950, y: 180 },
+      description: "The physical mounting point of the camera. Also a child of base_link with a static transform. For example: 0.8m forward, 0.3m left, 0.9m high, tilted 15 degrees down. The camera driver publishes Image messages in the camera_optical_frame (a child of camera_link), and TF2 handles the chain: map → odom → base_link → camera_link → camera_optical_frame.",
+    },
+    {
+      id: "imu",
+      label: "imu_link",
+      subtitle: "IMU Mount Point",
+      icon: "Compass",
+      accent: "rose",
+      position: { x: 950, y: 300 },
+      description: "The physical mounting point of the Inertial Measurement Unit (IMU). Another child of base_link with a static transform. The IMU publishes acceleration and angular velocity data. The Extended Kalman Filter (EKF) subscribes to the IMU to calculate the robot's exact orientation (pitch, roll, yaw) in the odom frame.",
+    },
+  ]}
+  edges={[
+    {
+      id: "e-map-odom",
+      source: "map",
+      target: "odom",
+      label: "drift correction (jump)",
+      animated: false,
+    },
+    {
+      id: "e-odom-base",
+      source: "odom",
+      target: "base_link",
+      label: "wheel odometry (50Hz, continuous)",
+      animated: true,
+    },
+    {
+      id: "e-base-lidar",
+      source: "base_link",
+      target: "lidar",
+      label: "static: 1.5m fwd, 1.0m up",
+      animated: false,
+    },
+    {
+      id: "e-base-camera",
+      source: "base_link",
+      target: "camera",
+      label: "static: 0.8m fwd, 0.3m left",
+      animated: false,
+    },
+    {
+      id: "e-base-imu",
+      source: "base_link",
+      target: "imu",
+      label: "static: 0m (centered)",
+      animated: false,
+    },
+  ]}
+/>
 
-```
-map ── odom ── base_link ──┬── base_footprint
-                            ├── lidar_link
-                            ├── camera_link
-                            └── imu_link
-```
-
-| Frame | Authority | Purpose |
-|-------|-----------|---------|
-| `map` | SLAM / global localizer | Global fixed frame, drift-free but discrete |
-| `odom` | Wheel odometry / EKF | Continuous, smooth, but drifts over time |
-| `base_link` | Robot URDF | Robot body center |
-| `*_link` | URDF / static broadcasters | Individual sensor mounts |
-
-<Callout type="why" title="The Why — Why Split map and odom?">
-`odom` is smooth (updated at 100Hz from wheel encoders) but drifts. `map` is drift-free (corrected by SLAM) but jumps discontinuously when a loop closure happens. By splitting them, your local planner uses `odom` for smooth control, while the global planner uses `map` for accuracy. The TF tree lets both coexist.
+<Callout type="how" title="The How — The REP-105 Standard">
+To conform to industry standards (REP-105), you must structure your tree exactly like this: **map → odom → base_link → sensor_links**. This hierarchy is not optional — Nav2, SLAM, and robot_localization all assume this structure. Violating it will cause silent navigation failures that are extremely difficult to debug.
 </Callout>
+
+### Why You Need TF2 — The Manual Math Nightmare
+
+**Drag the slider to compare computing transforms manually vs. using TF2:**
+
+<ComparisonSlider
+  label="Without TF2 (Manual 3D Math) vs. With TF2 (Automatic Resolution) — drag to compare"
+  before={{
+    title: "Without TF2 (Manual Math Nightmare)",
+    accent: "rose",
+    items: [
+      "LiDAR reports obstacle at (5.0, 0, 0) relative to lidar_link",
+      "You manually subtract the LiDAR offset: 5.0 + 1.5m = 6.5m from base_link",
+      "Then convert from base_link to odom using wheel encoder data",
+      "Then convert from odom to map using SLAM output",
+      "4x4 homogeneous transformation matrices in your code",
+      "Quaternion multiplication for every rotation",
+      "Timestamp synchronization — which sensor data is newest?",
+      "If the robot turned 15° since the LiDAR scan, you must interpolate",
+      "One bug in the math chain → robot crashes into a wall",
+      "Every node redoes the same calculations independently",
+    ]
+  }}
+  after={{
+    title: "With TF2 (Automatic Resolution)",
+    accent: "emerald",
+    items: [
+      "You ask TF2: 'Where is this LiDAR point in the map frame?'",
+      "TF2 traverses the tree: lidar_link → base_link → odom → map",
+      "It handles all the 4x4 matrix multiplication automatically",
+      "It uses timestamps to find the exact transform at scan time",
+      "It interpolates between transforms if the exact timestamp is missing",
+      "One function call: buffer.lookupTransform('map', 'lidar_link', time)",
+      "Every node shares the same TF tree via DDS — no redundant math",
+      "Static transforms are cached — zero network overhead",
+      "Dynamic transforms update at 50Hz automatically",
+      "You focus on the algorithm, not the coordinate math",
+    ]
+  }}
+/>
+
+### Real-world Use Cases
+
+- **Static Broadcasters:** The LiDAR mount — the distance between `lidar_link` and `base_link` is defined by a metal bracket. It never changes. TF2 broadcasts it once, and subscribers cache it forever, saving massive network bandwidth.
+- **Dynamic Broadcasters:** Wheel odometry — as the robot drives, the position of `base_link` relative to `odom` changes 50 times per second. A Dynamic Broadcaster attached to the motor encoders continuously updates this relationship on the network.
+
+---
 
 ### Implementation — The Static Broadcaster
 
-A static transform never changes (e.g. the LiDAR is bolted 20cm forward of `base_link`). Use `static_transform_publisher`:
+Because static transforms never change, we rarely write C++ code for them. We launch them directly via the CLI or Python Launch files.
 
-<TerminalBlock title="bash">
-{`# Publish a static transform: base_link -> lidar_link
-# Arguments: x y z yaw pitch roll parent child
-ros2 run tf2_ros static_transform_publisher 0.2 0 0.15 0 0 0 base_link lidar_link`}
-</TerminalBlock>
+<StepByStepCode
+  title="Static Transform Publisher (CLI + Launch)"
+  description="The Static Broadcaster — defines permanent transforms like sensor mount points. Built in 2 steps."
+  steps={[
+    {
+      title: "Step 1: Via CLI (Quick Testing)",
+      explanation: "For quick track testing, you use the pre-built tf2_ros static_transform_publisher. The arguments are: X Y Z Yaw Pitch Roll parent_frame child_frame. For example, if the LiDAR is 1.5m forward, 0m left, 1.0m high, with no rotation, you publish from base_link to lidar_link.",
+      cpp: `// CLI command (not C++ code, but shown for reference):
+//
+// ros2 run tf2_ros static_transform_publisher \\
+//   1.5 0.0 1.0 0.0 0.0 0.0 base_link lidar_link
+//
+// X=1.5 (forward), Y=0.0 (left), Z=1.0 (up)
+// Yaw=0, Pitch=0, Roll=0 (no rotation)
+// parent: base_link, child: lidar_link`,
+      python: `# CLI command (shown for reference):
+#
+# ros2 run tf2_ros static_transform_publisher \\
+#   1.5 0.0 1.0 0.0 0.0 0.0 base_link lidar_link
+#
+# X=1.5 (forward), Y=0.0 (left), Z=1.0 (up)
+# Yaw=0, Pitch=0, Roll=0 (no rotation)
+# parent: base_link, child: lidar_link`,
+    },
+    {
+      title: "Step 2: Via Python Launch File (Production)",
+      explanation: "For production, you declare static transforms in a launch file so they start automatically with the system. This is cleaner and repeatable — the engineer types 'ros2 launch' and all sensor frames are configured. The Node arguments mirror the CLI: X, Y, Z, Yaw, Pitch, Roll, parent, child.",
+      cpp: `// Launch files are Python-only in ROS 2.
+// See the Python tab for the launch file code.`,
+      python: `from launch import LaunchDescription
+from launch_ros.actions import Node
 
-### Implementation — Dynamic Broadcaster & Listener
+def generate_launch_description():
+    return LaunchDescription([
+        # LiDAR: 1.5m forward, 1.0m high, no rotation
+        Node(
+            package='tf2_ros',
+            executable='static_transform_publisher',
+            name='lidar_static_tf',
+            arguments=['1.5', '0.0', '1.0',
+                       '0', '0', '0',
+                       'base_link', 'lidar_link']
+        ),
+        # Camera: 0.8m forward, 0.3m left, 0.9m high
+        Node(
+            package='tf2_ros',
+            executable='static_transform_publisher',
+            name='camera_static_tf',
+            arguments=['0.8', '0.3', '0.9',
+                       '0', '0.26', '0',  # 15° tilt down
+                       'base_link', 'camera_link']
+        ),
+    ])`,
+    },
+  ]}
+/>
 
-For transforms that change over time (e.g. `odom` → `base_link` updated by the EKF), you publish to `/tf` dynamically.
+---
 
-<CodeBlock
-  title="src/odom_broadcaster.cpp"
-  cpp={`#include "rclcpp/rclcpp.hpp"
+### Implementation — The Dynamic Broadcaster & Listener
+
+Now we write a node that **dynamically broadcasts** the `odom → base_link` transform (simulating the robot moving forward), and a **listener** that reads it.
+
+<StepByStepCode
+  title="src/odom_tf_broadcaster.cpp"
+  description="The Dynamic TF Broadcaster — publishes odom → base_link at 50Hz, simulating wheel odometry. Built in 3 steps."
+  steps={[
+    {
+      title: "Step 1: Class & Broadcaster Initialization",
+      explanation: "We create a DynamicTFBroadcaster that inherits from rclcpp::Node. We initialize the TransformBroadcaster (which publishes to the /tf topic) and a wall timer that fires at 50Hz (20ms). We also track x_pos_ to simulate the robot moving forward.",
+      cpp: `#include <memory>
+#include "rclcpp/rclcpp.hpp"
 #include "tf2_ros/transform_broadcaster.h"
 #include "geometry_msgs/msg/transform_stamped.hpp"
-#include "nav_msgs/msg/odometry.hpp"
+#include "tf2/LinearMath/Quaternion.h"
 
-class OdomBroadcaster : public rclcpp::Node {
+using namespace std::chrono_literals;
+
+class DynamicTFBroadcaster : public rclcpp::Node
+{
 public:
-  OdomBroadcaster() : Node("odom_broadcaster") {
-    tf_broadcaster_ = std::make_unique<tf2_ros::TransformBroadcaster>(this);
-    sub_ = this->create_subscription<nav_msgs::msg::Odometry>(
-      "/odom", 10,
-      std::bind(&OdomBroadcaster::on_odom, this, std::placeholders::_1));
-  }
-private:
-  void on_odom(const nav_msgs::msg::Odometry::SharedPtr msg) {
-    geometry_msgs::msg::TransformStamped t;
-    t.header.stamp = msg->header.stamp;
-    t.header.frame_id = "odom";
-    t.child_frame_id = "base_link";
-    t.transform.translation.x = msg->pose.pose.position.x;
-    t.transform.translation.y = msg->pose.pose.position.y;
-    t.transform.rotation = msg->pose.pose.orientation;
-    tf_broadcaster_->sendTransform(t);
-  }
-  std::unique_ptr<tf2_ros::TransformBroadcaster> tf_broadcaster_;
-  rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr sub_;
-};
+  DynamicTFBroadcaster() : Node("odom_tf_broadcaster"), x_pos_(0.0)
+  {
+    // 1. Initialize the Broadcaster
+    tf_broadcaster_ = std::make_unique<
+      tf2_ros::TransformBroadcaster>(*this);
 
-int main(int argc, char ** argv) {
-  rclcpp::init(argc, argv);
-  rclcpp::spin(std::make_shared<OdomBroadcaster>());
-  rclcpp::shutdown();
-}`}
-  python={`import rclpy
+    // 2. Broadcast at 50Hz (20ms)
+    timer_ = this->create_wall_timer(
+      20ms, std::bind(
+        &DynamicTFBroadcaster::broadcast_timer_callback, this));
+  }
+
+private:
+  // Callback (Step 2)
+  std::unique_ptr<tf2_ros::TransformBroadcaster> tf_broadcaster_;
+  rclcpp::TimerBase::SharedPtr timer_;
+  double x_pos_;
+};`,
+      python: `import rclpy
 from rclpy.node import Node
 from tf2_ros import TransformBroadcaster
 from geometry_msgs.msg import TransformStamped
-from nav_msgs.msg import Odometry
+from tf2_py import Quaternion
 
-class OdomBroadcaster(Node):
+class DynamicTFBroadcaster(Node):
     def __init__(self):
-        super().__init__('odom_broadcaster')
-        self.tf_broadcaster = TransformBroadcaster(self)
-        self.sub = self.create_subscription(
-            Odometry, '/odom', self._on_odom, 10)
+        super().__init__('odom_tf_broadcaster')
+        self.x_pos_ = 0.0
 
-    def _on_odom(self, msg):
+        # 1. Initialize the Broadcaster
+        self.tf_broadcaster = TransformBroadcaster(self)
+
+        # 2. Broadcast at 50Hz (0.02 seconds)
+        self.timer = self.create_timer(
+            0.02, self.broadcast_timer_callback)
+
+    # Callback (Step 2)`,
+    },
+    {
+      title: "Step 2: Create & Populate the Transform Message",
+      explanation: "The timer callback fires 50 times per second. We create a TransformStamped message, set the timestamp (CRITICAL — TF2 uses this for time-travel lookups), set the parent (odom) and child (base_link) frame IDs, populate the translation (simulating forward motion on the X axis), and convert Euler angles (Roll, Pitch, Yaw) to a Quaternion for rotation.",
+      cpp: `class DynamicTFBroadcaster : public rclcpp::Node
+{
+  // ... Step 1 ...
+
+  void broadcast_timer_callback()
+  {
+    // 3. Create the Transform Message
+    geometry_msgs::msg::TransformStamped t;
+
+    // 4. Timestamp and frame IDs are CRITICAL
+    t.header.stamp = this->get_clock()->now();
+    t.header.frame_id = "odom";       // Parent
+    t.child_frame_id = "base_link";   // Child
+
+    // 5. Translation (simulating forward motion)
+    t.transform.translation.x = x_pos_;
+    t.transform.translation.y = 0.0;
+    t.transform.translation.z = 0.0;
+
+    // 6. Rotation using Quaternions
+    // (Math representation of 3D rotation)
+    tf2::Quaternion q;
+    q.setRPY(0.0, 0.0, 0.0);  // Roll, Pitch, Yaw
+    t.transform.rotation.x = q.x();
+    t.transform.rotation.y = q.y();
+    t.transform.rotation.z = q.z();
+    t.transform.rotation.w = q.w();
+
+    // Send transform (Step 3)
+  }
+};`,
+      python: `class DynamicTFBroadcaster(Node):
+    # ... Step 1 ...
+
+    def broadcast_timer_callback(self):
+        # 3. Create the Transform Message
         t = TransformStamped()
-        t.header.stamp = msg.header.stamp
-        t.header.frame_id = 'odom'
-        t.child_frame_id = 'base_link'
-        t.transform.translation.x = msg.pose.pose.position.x
-        t.transform.translation.y = msg.pose.pose.position.y
-        t.transform.rotation = msg.pose.pose.orientation
+
+        # 4. Timestamp and frame IDs are CRITICAL
+        t.header.stamp = self.get_clock().now().to_msg()
+        t.header.frame_id = 'odom'        # Parent
+        t.child_frame_id = 'base_link'    # Child
+
+        # 5. Translation (simulating forward motion)
+        t.transform.translation.x = self.x_pos_
+        t.transform.translation.y = 0.0
+        t.transform.translation.z = 0.0
+
+        # 6. Rotation using Quaternions
+        import math
+        from tf2_py import Quaternion
+        q = Quaternion()
+        q.setRPY(0.0, 0.0, 0.0)  # Roll, Pitch, Yaw
+        t.transform.rotation.x = q.x
+        t.transform.rotation.y = q.y
+        t.transform.rotation.z = q.z
+        t.transform.rotation.w = q.w
+
+        # Send transform (Step 3)`,
+    },
+    {
+      title: "Step 3: Send Transform + The TF Listener + main()",
+      explanation: "We call sendTransform to publish the message to the /tf topic. Then we increment x_pos_ to simulate motion. The Listener uses a Buffer to store the last 10 seconds of TF data, and lookupTransform to query the tree. tf2::TimePointZero means 'give me the latest available transform'. If the transform doesn't exist or is too old, it throws an exception you must catch.",
+      cpp: `class DynamicTFBroadcaster : public rclcpp::Node
+{
+  // ... Steps 1 & 2 ...
+
+  void broadcast_timer_callback()
+  {
+    // ... create and populate t (Steps 1 & 2) ...
+
+    // 7. Send the transform to the TF tree
+    tf_broadcaster_->sendTransform(t);
+
+    x_pos_ += 0.01;  // Move forward 1cm per tick
+  }
+};
+
+// ── THE TF LISTENER (separate node) ──
+// Uses a Buffer to store 10s of TF data, queries dynamically.
+//
+// tf_buffer_ = std::make_unique<tf2_ros::Buffer>(this->get_clock());
+// tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
+//
+// try {
+//   auto t = tf_buffer_->lookupTransform(
+//     "odom", "base_link", tf2::TimePointZero);
+//   RCLCPP_INFO(get_logger(), "X: %.2f",
+//     t.transform.translation.x);
+// } catch (const tf2::TransformException &ex) {
+//   RCLCPP_WARN(get_logger(), "Could not transform: %s", ex.what());
+// }
+
+int main(int argc, char** argv) {
+  rclcpp::init(argc, argv);
+  rclcpp::spin(std::make_shared<DynamicTFBroadcaster>());
+  rclcpp::shutdown();
+  return 0;
+}`,
+      python: `class DynamicTFBroadcaster(Node):
+    # ... Steps 1 & 2 ...
+
+    def broadcast_timer_callback(self):
+        # ... create and populate t (Steps 1 & 2) ...
+
+        # 7. Send the transform to the TF tree
         self.tf_broadcaster.sendTransform(t)
+
+        self.x_pos_ += 0.01  # Move forward 1cm per tick
+
+# ── THE TF LISTENER (separate node) ──
+# Uses a Buffer to store 10s of TF data, queries dynamically.
+#
+# from tf2_ros.buffer import Buffer
+# from tf2_ros.transform_listener import TransformListener
+#
+# self.tf_buffer = Buffer()
+# self.tf_listener = TransformListener(self.tf_buffer, self)
+#
+# try:
+#     t = self.tf_buffer.lookup_transform(
+#         'odom', 'base_link', rclpy.time.Time())
+#     self.get_logger().info(
+#         f"X: {t.transform.translation.x:.2f}")
+# except Exception as e:
+#     self.get_logger().warning(f"Could not transform: {e}")
 
 def main(args=None):
     rclpy.init(args=args)
-    rclpy.spin(OdomBroadcaster())
-    rclpy.shutdown()`}
+    rclpy.spin(DynamicTFBroadcaster())
+    rclpy.shutdown()
+
+if __name__ == '__main__':
+    main()`,
+    },
+  ]}
 />
 
-### CLI Tools & Debugging (CRITICAL)
+---
 
-<TerminalBlock title="bash">
-{`# Visualize the live TF tree as a PDF diagram
-ros2 run tf2_tools view_frames
+### CLI Tools & Debugging — CRITICAL
 
-# Echo a specific transform in real time
-ros2 run tf2_ros tf2_echo odom base_link
+When a node crashes because it *"Cannot transform lidar_link to map"*, your engineers will be blind unless they know how to inspect the tree. TF2 debugging is **entirely CLI-based**.
 
-# Check if a transform is available at a specific time
-ros2 run tf2_ros tf2_monitor`}
-</TerminalBlock>
+**Try the TF2 CLI commands in the terminal below. Type `ros2 run tf2_tools view_frames` to generate the tree PDF, or `ros2 run tf2_ros tf2_echo` to see live transform data:**
 
-<Callout type="pitfall" title="CRITICAL Pitfall — The Broken Tree">
-If TF2 returns *"Could not find a connection between base_link and map"*, your tree is **broken** — a parent-child link is missing somewhere. Every frame must have exactly **one parent** in the tree. A disconnected subtree is the #1 cause of "TF extrapolation into past" errors in Nav2.
+<SimulatedTerminal
+  title="ROS 2 TF2 Debug Terminal"
+  welcomeMessage={[
+    "ROS 2 Humble — TF2 Transform Debugging Terminal",
+    "The robot is running. Try 'ros2 run tf2_tools view_frames' to see the tree.",
+  ]}
+  hintCommands={[
+    "ros2 run tf2_tools view_frames",
+    "ros2 run tf2_ros tf2_echo odom base_link",
+    "ros2 run tf2_ros tf2_echo map lidar_link",
+    "ros2 run tf2_ros tf2_echo base_link camera_link",
+    "ros2 run tf2_ros tf2_monitor",
+  ]}
+  commands={[
+    {
+      command: "ros2 run tf2_tools view_frames",
+      description: "Generate a visual PDF of the entire TF tree (THE most important debug tool)",
+      output: [
+        "[INFO] [tf2_tools]: Listening to TF data for 5 seconds...",
+        "[INFO] [tf2_tools]: Capturing transforms from /tf and /tf_static...",
+        "[INFO] [tf2_tools]: Found 6 frames: map, odom, base_link, lidar_link, camera_link, imu_link",
+        "[INFO] [tf2_tools]: Generating graph...",
+        "[INFO] [tf2_tools]: Saved to frames.pdf",
+        "",
+        "# Open frames.pdf to see the full tree visualization.",
+        "# If a frame is floating alone without a parent arrow,",
+        "# your static transform publisher crashed!",
+      ],
+    },
+    {
+      command: "ros2 run tf2_ros tf2_echo odom base_link",
+      description: "Wiretap: see the live transform between two frames (updates continuously)",
+      output: [
+        "At time 1708214532.123456",
+        "- Translation: [0.010, 0.000, 0.000]",
+        "- Rotation: in Quaternion [0.000, 0.000, 0.000, 1.000]",
+        "---",
+        "At time 1708214532.143456",
+        "- Translation: [0.020, 0.000, 0.000]",
+        "- Rotation: in Quaternion [0.000, 0.000, 0.000, 1.000]",
+        "---",
+        "At time 1708214532.163456",
+        "- Translation: [0.030, 0.000, 0.000]",
+        "- Rotation: in Quaternion [0.000, 0.000, 0.000, 1.000]",
+        "---",
+        "# (continuously updates — the robot is moving forward",
+        "#  at 0.01m per 20ms tick = 0.5 m/s)",
+      ],
+    },
+    {
+      command: "ros2 run tf2_ros tf2_echo map lidar_link",
+      description: "Chain lookup: TF2 traverses map → odom → base_link → lidar_link automatically",
+      output: [
+        "At time 1708214532.123456",
+        "- Translation: [1.510, 0.000, 1.000]",
+        "- Rotation: in Quaternion [0.000, 0.000, 0.000, 1.000]",
+        "---",
+        "At time 1708214532.143456",
+        "- Translation: [1.520, 0.000, 1.000]",
+        "- Rotation: in Quaternion [0.000, 0.000, 0.000, 1.000]",
+        "---",
+        "# Note: X = robot_x (0.01) + lidar_offset (1.5) = 1.51",
+        "# TF2 did the math across 3 frames automatically!",
+      ],
+    },
+    {
+      command: "ros2 run tf2_ros tf2_echo base_link camera_link",
+      description: "Check a static transform (should not change over time)",
+      output: [
+        "At time 1708214532.123456",
+        "- Translation: [0.800, 0.300, 0.900]",
+        "- Rotation: in Quaternion [0.000, 0.130, 0.000, 0.991]",
+        "---",
+        "At time 1708214532.143456",
+        "- Translation: [0.800, 0.300, 0.900]",
+        "- Rotation: in Quaternion [0.000, 0.130, 0.000, 0.991]",
+        "---",
+        "# Static — values never change. Camera is 0.8m forward,",
+        "# 0.3m left, 0.9m high, tilted 15° down (0.261 rad pitch).",
+      ],
+    },
+    {
+      command: "ros2 run tf2_ros tf2_monitor",
+      description: "Monitor broadcast rates and delays for all frames",
+      output: [
+        "RESULTS: for all Frames",
+        "",
+        "Frames:",
+        "Frame: base_link, published by odom_tf_broadcaster, Average Delay: 0.0002s, Max Delay: 0.001s",
+        "Frame: lidar_link, published by lidar_static_tf, Static (no delay)",
+        "Frame: camera_link, published by camera_static_tf, Static (no delay)",
+        "Frame: imu_link, published by imu_static_tf, Static (no delay)",
+        "Frame: odom, published by amcl_node, Average Delay: 0.0015s, Max Delay: 0.003s",
+        "",
+        "All: True, Delay: 0.002s, Max Delay: 0.003s",
+      ],
+    },
+  ]}
+/>
+
+<Callout type="pitfall" title="CRITICAL Pitfall — TF2 Time Travel (The Extrapolation Error)">
+TF2 is **time-stamped**. Every transform carries the exact time it was measured. If you ask TF2 for the transform at time T, but the latest available transform is from time T-2.0 seconds, TF2 will throw an `ExtrapolationException`: *"Lookup would require extrapolation into the past."*
+
+This happens when a node starts slowly (e.g., a heavy SLAM node takes 3 seconds to boot), but other nodes are already publishing. The late node asks for a transform from 3 seconds ago, but the TF buffer only keeps 10 seconds of history.
+
+**Best Practice:** Always use `tf2::TimePointZero` (C++) or `rclpy.time.Time()` (Python) to request the **latest available** transform instead of a specific timestamp, unless you absolutely need historical data.
 </Callout>
 
-<Callout type="best-practice" title="Best Practice — Publish at Sensor Rate">
-Broadcast dynamic transforms at the **rate of the source sensor** (e.g. publish `odom`→`base_link` at the EKF output rate, typically 30-50Hz). TF2 interpolates between stamps, but cannot extrapolate more than the `cache_time` (default 10s). Stale transforms cause silent Nav2 failures.
+<Callout type="pitfall" title="CRITICAL Pitfall — Frame Existence (The Broken Tree)">
+If `tf2_echo` fails with *"Could not transform lidar_link to map"*, it means your **tree is broken**. A parent is missing, or a child is detached. The most common causes:
+
+1. **Missing static broadcaster:** You forgot to launch the `static_transform_publisher` for `lidar_link`. TF2 doesn't know `lidar_link` exists.
+2. **Node crash:** The `odom_tf_broadcaster` crashed, so the `odom → base_link` edge is gone. The tree is split in two.
+3. **Wrong frame name:** Your code asks for `lidar_link` but the broadcaster publishes `lidar_frame`. Case-sensitive!
+
+**Best Practice:** Run `ros2 run tf2_tools view_frames` and open the PDF. If `lidar_link` is floating alone without an arrow connecting it to `base_link`, you instantly know your static transform publisher crashed or was never launched.
+</Callout>
+
+<Callout type="best-practice" title="Tech Lead Note — The frames.pdf is Your Best Friend">
+When you open `frames.pdf`, it visually maps **every active coordinate frame**, who its parent is, who is broadcasting it, and the average broadcast frequency. If `lidar_link` is floating alone without an arrow connecting it to `base_link`, you instantly know your static transform publisher from crashed. This single PDF saves hours of debugging.
 </Callout>
 
 ---
 
-> **Coming next:** Real-world calibration walkthroughs (extrinsics between wheel-encoder frame and LiDAR), `tf2_ros::MessageFilter` usage for time-synchronized sensor fusion, and quaternion math essentials.
+> **Coming next in Phase 5:** Advanced Node Architecture — Composition (Component Nodes) and Managed Nodes (Lifecycle Nodes) for production-grade performance and deterministic boot sequencing.
