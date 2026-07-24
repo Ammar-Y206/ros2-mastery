@@ -1,11 +1,8 @@
 import type { NextConfig } from "next";
 import createMDX from "@next/mdx";
-import remarkGfm from "remark-gfm";
-import remarkHeadingId from "remark-heading-id";
-import rehypeSlug from "rehype-slug";
 
 const nextConfig: NextConfig = {
-  output: "standalone",
+  // شيلنا output: "standalone" لأن Vercel مش محتاجه، وده اللي كان بيسبب مشاكل ال cp -r
   typescript: {
     ignoreBuildErrors: true,
   },
@@ -16,8 +13,9 @@ const nextConfig: NextConfig = {
 const withMDX = createMDX({
   extension: /\.mdx?$/,
   options: {
-    remarkPlugins: [remarkGfm, remarkHeadingId],
-    rehypePlugins: [rehypeSlug],
+    // الحل السحري: شيلنا ال import وقولنا ل Turbopack اسم ال Plugin ك String
+    remarkPlugins: ["remark-gfm", "remark-heading-id"],
+    rehypePlugins: ["rehype-slug"],
   },
 });
 
