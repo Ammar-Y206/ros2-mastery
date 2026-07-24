@@ -10,7 +10,8 @@ Instead of memorizing commands from documentation, learners build an intuition f
 
 ## 🌐 Live Demo
 
-https://ros2-mastery.vercel.app
+[https://ros2-mastery.vercel.app
+](https://ros2-mastery-7sxe.vercel.app/)
 
 ---
 
