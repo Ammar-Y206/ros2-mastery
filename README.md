@@ -172,6 +172,13 @@ http://localhost:3000
 
 ---
 
+## Author
+
+Created by **Ammar (Yasser) Abd-Elkawi**
+
+- GitHub: https://github.com/Ammar-Y206
+- LinkedIn: www.linkedin.com/in/ammar-yasser-ece
+---
 ## 🤝 Contributing
 
 Contributions are welcome!
