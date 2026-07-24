@@ -245,29 +245,38 @@ export function CourseOverview({ onNavigate, onDismiss, onBookmarks, onAchieveme
       {/* ── Professional Footer ──────────────────────────────────────── */}
       <footer className="border-t border-border/40 py-8">
         <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-4 px-5 sm:flex-row lg:px-10">
-          {/* Left: copyright */}
+          {/* Left: copyright & author */}
           <p className="text-sm text-muted-foreground">
-            © 2024 ROS2 Mastery. Open-source learning platform.
+            © 2024 ROS2 Mastery. Built by 
+            <a 
+              href="https://www.linkedin.com/in/ammar-yasser-ece" 
+              target="_blank" 
+              rel="noopener noreferrer" 
+              className="font-semibold underline underline-offset-4 transition-colors hover:text-cyan-400"
+            >
+              Ammar (Yasser) Abd-Elkawi
+            </a> 
+            for the robotics community.
           </p>
           {/* Right: social icons + version */}
           <div className="flex items-center gap-4">
             <a
-              href="https://github.com/ros2"
+              href="https://github.com/Ammar-Y206/ros2-mastery"
               target="_blank"
               rel="noopener noreferrer"
               className="text-muted-foreground/50 transition-colors hover:text-cyan-400"
-              aria-label="GitHub"
+              aria-label="Project GitHub"
             >
               <Icons.Github className="h-4 w-4" />
             </a>
             <a
-              href="https://twitter.com"
+              href="https://www.linkedin.com/in/ammar-yasser-ece"
               target="_blank"
               rel="noopener noreferrer"
               className="text-muted-foreground/50 transition-colors hover:text-cyan-400"
-              aria-label="Twitter/X"
+              aria-label="Author LinkedIn"
             >
-              <Icons.Twitter className="h-4 w-4" />
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 8a6 6 0 0 1 6 6v7h-4v-7a2 2 0 0 0-2-2 2 2 0 0 0-2 2v7h-4v-7a6 6 0 0 1 6-6z"></path><rect width="4" height="12" x="2" y="9"></rect><circle cx="4" cy="4" r="2"></circle></svg>
             </a>
             <span className="rounded-full border border-border/40 px-2 py-0.5 font-mono text-[10px] font-medium text-muted-foreground/40">
               v1.0
