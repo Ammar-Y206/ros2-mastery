@@ -104,15 +104,14 @@ ROS2 Mastery transforms ROS2 into an interactive experience where learners can:
 ## 📊 Project Metrics
 
 - 7 Learning Phases
-- 30+ Interactive Lessons
+- 20+ Interactive Lessons
 - 20+ Custom Components
-- 15+ Simulations
 - Fully Responsive
 - Built with Modern Web Technologies
 
 ---
 
-## 🛠️ Tech Stack
+## 🛠️ Tech Stack (vibe coding)
 
 | Technology | Purpose |
 |------------|---------|
@@ -143,18 +142,6 @@ Simulations & Visualizations
    ↓
 Practical Understanding
 ```
-
----
-
-## 📸 Screenshots
-
-> Add screenshots or GIFs showcasing:
->
-> - Interactive TF Tree
-> - Simulated Terminal
-> - Nav2 Visualization
-> - Step-by-Step Code Builder
-
 ---
 
 ## 🛠️ Running Locally
